@@ -1,21 +1,27 @@
 #!/usr/bin/env python
-from __future__ import division
-import serial
-import glob
+from __future__ import division as _division, absolute_import as _absolute_import
+# stdlib
 import os
 import sys
-import rtmidi2 as rtmidi
+import glob
 import json
 import time
-import liblo
-from liblo import send as oscsend
 import logging
-import timer2
+import logging.handlers
 import shutil
+import inspect
+import fnmatch
 
+# dependencies
+import timer2
+import liblo
+import serial
+import rtmidi2 as rtmidi
+
+# local
 from .config import *
-import util
-import envir
+from . import util
+from . import envir
 
 """
 PROTOCOL 
@@ -45,10 +51,37 @@ _scheduler = timer2.Timer(precision=0.2)
 # Logging
 # 
 ################################
-_logname = 'PEDLBRD'
-_logfile = os.path.join(envir.configpath(), "%s.log" % _logname)
-logging.basicConfig(level=logging.DEBUG, filename=_logfile)
-_log = logging.getLogger(_logname)
+class Log:
+	def __init__(self):
+		logname = 'PEDLBRD'
+		self.filename_debug = os.path.join(envir.configpath(), "%s--debug.log" % logname)
+		self.filename_info  = os.path.join(envir.configpath(), "%s.log" % logname)
+		self.debug_log = debug_log = logging.getLogger('pedlbrd-debug')
+		debug_log.setLevel(logging.DEBUG)
+		debug_handler = logging.handlers.RotatingFileHandler(self.filename_debug, maxBytes=80*2000, backupCount=1)
+		debug_handler.setFormatter( logging.Formatter('%(levelname)s: -- %(message)s') )
+		debug_log.addHandler(debug_handler)
+
+		self.info_log = info_log = logging.getLogger('pedlbrd-info')
+		info_log.setLevel(logging.INFO)
+		info_handler = logging.handlers.RotatingFileHandler(self.filename_info, maxBytes=80*500, backupCount=0)
+		info_handler.setFormatter( logging.Formatter('%(message)s') )
+		info_log.addHandler(info_handler)
+		self.loggers = [debug_log, info_log]
+
+	def debug(self, msg):
+		for logger in self.loggers:
+			logger.debug(msg)
+
+	def info(self, msg):
+		for logger in self.loggers:
+			logger.info(msg)
+
+	def error(self, msg):
+		for logger in self.loggers:
+			logger.error(msg)
+	
+logger = Log()	
 
 #################################
 # CONSTANTS & SETUP
@@ -56,6 +89,8 @@ _log = logging.getLogger(_logname)
 DEBUG = False
 BAUDRATE = 57600
 CC = 176
+
+CMD_FORCE_DIGITAL = 'F'
 
 ###############################
 # Helper functions
@@ -81,8 +116,7 @@ def _aspin(pin):
 	else:
 		raise ValueError("pin should be either a string or a tuple")
 
-class DeviceNotFound(BaseException):
-	pass
+class DeviceNotFound(BaseException): pass
 
 def _is_heartbeat_present(port):
 	"""
@@ -135,23 +169,42 @@ def detect_port():
 			return port
 	return None
 
+def write_default_config(name=None):
+	"""
+	write the default configuration to the configpath
+
+	name: the name to be given to the resulting config file
+
+	Returns
+	=======
+
+	the path of the written file
+	"""
+	if name is None:
+		name = DEFAULTS['configname']
+	name = os.path.splitext(name)[0] + '.json'
+	path = os.path.join(envir.configpath(), name)
+	_jsondump(DEFAULT_CONFIG, path)
+	return path
+
 # -----------------------------------------------------------------------
 
 class Configuration(dict):
-	__slots__ = "callback _modified _label2pin _pin2label".split()
-	def __init__(self, config, overrides=None, callback=None,):
+	__slots__ = "callback _label2pin _pin2label _callback_enabled".split()
+	def __init__(self, config, overrides=None, callback=None):
 		"""
-		config: a dictionary
-		callback: a function to be called each time the configuration is changed
-		overrides: a dictionary that overrides config
+		config   : (dict) The configuration dict
+		callback : (func) The function to be called each time the 
+		                  configuration is changed
+		overrides: (dict) A dictionary that overrides (updates) config
 		"""
 		assert isinstance(config, dict)
 		if overrides:
 			config.update(overrides)
-		self.callback = callback if callback is not None else self._default_callback
+		self.callback = callback
 		self.update(config)
-		self._modified = False
 		self._label2pin, self._pin2label = self._get_input_pin_mapping()
+		self._callback_enabled = True
 		
 	def label2pin(self, label):
 		return self._label2pin.get(label)
@@ -173,10 +226,6 @@ class Configuration(dict):
 
 	def _get_labels(self):
 		return self['input_definition'].keys()
-
-	def _default_callback(self, key, newvalue):
-		_debug("config modified: %s=%s" % (key, newvalue))
-		self._modified = True
 
 	def getpath(self, path):
 		if isinstance(path, basestring):
@@ -209,7 +258,8 @@ class Configuration(dict):
 		d = self
 		if len(keys) == 0:
 			self[path] = value
-			self.callback(path, value)
+			if self._callback_enabled:
+				self.callback(path, value)
 		else:
 			for key in keys[:-1]:
 				v = d.get(key)
@@ -218,13 +268,12 @@ class Configuration(dict):
 				else:
 					raise KeyError("set -- key not found: %s" % key)
 			d[keys[-1]] = value
-			self.callback(path, value)
+			if self._callback_enabled:
+				self.callback(path, value)
 
 	def midi_mapping_for_label(self, label):
 		# return self['midi_mapping'].get(label)
 		return self['input_mapping'].get(label).get('midi')
-
-	
 
 
 # --------------------------------------------------------------
@@ -234,6 +283,7 @@ class MIDI_Mapping(object):
 		"""
 		configuration: a Configuration
 		"""
+		assert isinstance(configuration, Configuration)
 		self.config = configuration
 		self._analog_lastvalues = [0 for i in range(self.config['num_analog_pins'])]
 
@@ -244,17 +294,13 @@ class MIDI_Mapping(object):
 	
 	def construct_digital_func(self, label):
 		mapping = self.config.midi_mapping_for_label(label)
-		inverted = self.config['input_mapping'][label]['inverted']
 		kind, pin = self.config.label2pin(label)
 		if not mapping:
 			return None
 		byte1 = CC + mapping['channel']
 		cc = mapping['cc']
 		_, out1 = mapping['output']
-		if not inverted:
-			func = lambda x: (byte1, cc, x*out1)
-		else:
-			func = lambda x: (byte1, cc, (1 - x)*out1)
+		func = lambda x: (byte1, cc, x*out1)
 		if DEBUG:
 			def debugfunc(x):
 				msg = func(x)
@@ -293,12 +339,6 @@ class MIDI_Mapping(object):
 
 # -----------------------------------------------------------------------------------------------------
 
-class OSC_Server(liblo.ServerThread):
-	def __init__(self, port):
-		liblo.ServerThread.__init__(self, port)
-
-# -----------------------------------------------------------------------------------------------------
-
 def _envpath(name):
 	"""
 	returns the full path (folder/name) of the env.json file
@@ -314,15 +354,18 @@ def _envpath(name):
 class Pedlbrd(object):
 	def __init__(self, config=None, env=None, restore_session=None, **kws):
 		"""
-		config: the name of the configuration file or None to use the default
+		config: (str) The name of the configuration file
+		        None to use the default
+		
+		restore_session: (bool) Override the directive in config
 		"""
 		self.env = self._load_env(env)
 		restore_session = restore_session if restore_session is not None else self.env['restore_session']
-
 		self.config, self.configfile = self._load_config(config, kws, restore_session=restore_session)
 		self.reset_state()
 
 		self._running = False
+		self._status = ''
 		self._paused = False
 		self._midiout = None
 		self._serial_timeout = 0.2
@@ -332,35 +375,242 @@ class Pedlbrd(object):
 		self._serialconnection = None
 		self._oscserver = None
 		self._oscapi = None
+		self._midichannel = -1
+		self._cache_update()
+		self._oscserver, self._oscapi = self._create_oscserver()
+		self._oscserver.start()
 
+		# Here we actually try to connect to the device. 
+		# If firsttime_retry_period is possitive, it will block and wait for device to show up
+		self._prepare_connection()
+		self._labels = self.config['input_definition'].keys()
+		self.report()
+		if self.config['autostart']:
+			_debug("starting...")
+			self.start()
+		if self.config.get('open_log_at_startup', False):
+			self.open_log()
+
+	#####################################################
+	#
+	#          P U B L I C    A P I            
+	# 
+	#####################################################
+
+	def open_config(self, configfile):
+		found, configfile = envir.config_find(configfile)
+		if found:
+			self.config, self.configfile = self._load_config(configfile)
+		self.reset_state()
+		self._cache_update()
+
+	def pin2label(self, kind, pin):
+		return self.config.pin2label(kind, pin)
+
+	def label2pin(self, label):
+		"""
+		returns a tuple (kind, pin)
+		"""
+		return self.config.label2pin(label)
+
+	def config_restore_defaults(self):
+		"""
+		save the current config and load the default configuration
+
+		Returns
+		=======
+
+		the path of the default configuration
+		"""
+		self.save_config()
+		configname = DEFAULTS['configname']
+		configpath = write_default_config(configname)
+		self.open_config(configname)
+		return configpath
+
+	def get_last_saved(self, skip_autosave=True):
+		configfolder = envir.configpath()
+		saved = [f for f in glob.glob(os.path.join(configfolder, '*.json')) if not f.startswith('_')]
+		if saved and skip_autosave:
+			saved = [f for f in saved if 'autosaved' not in f]
+		if saved:
+			lastsaved = sorted([(os.stat(f).st_ctime, f) for f in saved])[-1][1]
+			return lastsaved
+		return None
+
+	@property 
+	def echo(self): return self._echo
+
+	@echo.setter
+	def echo(self, value):
+		self._echo = value
+		self._update_dispatch_funcs()
+
+	def reset_state(self):
+		self._midi_mapping = MIDI_Mapping(self.config)
+		self._analog_maxvalues = [0 for i in range(127)]
+		self._input_labels = self.config['input_mapping'].keys()
+
+	def find_device(self, retry_period=0):
+		"""
+		find the path of the serial device. check that it is alive
+		if given, retry repeatedly until the device is found 
+
+		Returns: the path of the serial device.
+		"""
+		while True:
+			port = detect_port()
+			if not port:
+				self._set_status('nodevice')
+				if not retry_period:
+					return None
+				else:
+					_error('Device not found, retrying in %0.1f seconds' % retry_period)
+					time.sleep(retry_period)
+			else:
+				self._set_status('deviceok')
+				return port
+
+	@property
+	def serialport(self):
+		if self._serialport:
+			return self._serialport
+		port = detect_port()
+		self._serialport = port
+		return port
+
+	def start(self, async=None):
+		"""
+		start communication (listen to device, output to midi and/or osc, etc)
+
+		async: if True, do everything non-blocking
+		       if None, use the settings in the config ('serialloop_async')
+		"""
+		self._mainloop(async=async)
+
+	def stop(self):
+		if not self._running:
+			_info("already stopped!")
+			return
+		_banner("stopping...", margin_vert=1)
+		self._running = False
+		time.sleep(self._serial_timeout)
+		if self._serialconnection:
+			self._serialconnection.close()
+		self._midi_turnoff()
+		self._oscserver.stop()
+		self._oscserver.free()
+		for handlername, handler in self._handlers.iteritems():
+			_debug('cancelling %s' % handlername)
+			handler.cancel()
+		if self.env.get('autosave_config', True):
+			self._save_config()
+		self._save_env()
+
+	def save_config(self, newname=None):
+		"""
+		save the current configuration
+
+		Arguments
+		=========
+
+		newname: like "save as", the newname is used for next savings
+
+		If a config file was used, it will be saved to this name unless
+		a new name is given.
+
+		If a default config was used ( Pedlbrd(config=None) ), then a default
+		name will be used. 
+
+		Returns
+		=======
+
+		the full path where the config file was saved
+		"""
+		return self._save_config(newname)
+
+	def calibrate_digital(self):
+		"""
+		call this functio with all digital input devices
+		untouched. this will be the 0 state, devices which
+		untouched send 1 will be inverted
+
+		This has only sense por "push-to-talk" devices
+		Latching devices (toggle) should be put in the 
+		off position before calibration
+		"""
+		if self._running:
+			self._calibrate_digital = True
+			self._send_command(CMD_FORCE_DIGITAL, 0, 0)
+			time.sleep(0.2)
+			self._calibrate_digital = False
+		else:
+			_error("attempted to calibrate digital inputs outside of main loop")
+			return 
+
+	####################################################
+	#
+	#          P R I V A T E
+	#
+	####################################################
+
+	def _cache_osc_addresses(self):
 		def as_address(addr):
 			if isinstance(addr, (tuple, list)):
 				return liblo.Address(*addr)
 			else:
 				return liblo.Address(addr)
-		self._osc_report_addresses = [as_address(addr) for addr in self.config['osc_report_addresses']]
+		self._osc_ui_addresses = [as_address(addr) for addr in self.config['osc_ui_addresses']]
+		self._osc_data_addresses = [as_address(addr) for addr in self.config['osc_data_addresses']]
 
-		_call_later(3, self._show_configuration_info)
-		self._prepare_connection()
-		if self.config['autostart']:
+	def _cache_update(self):
+		if self._running:
+			wasrunning = True
+			self.stop()
+		else:
+			wasrunning = False
+		self._cache_osc_addresses()
+		self._sendraw = self.config['osc_send_raw_data']
+		self._update_midichannel()
+		if wasrunning:
 			self.start()
 
-	def _show_configuration_info(self):
+	def report(self):
+		lines = []
+		_info("\n\n")
+		_info("- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - ")
+		_info("MIDI       : %s" % self.config['midi_device_name'])
+		_info("PORT       : %s" % self._serialport)
+		_info("OSC IN     : %s, %d" % (_get_ip(), self.config['osc_port']))
+		osc_data = self.config['osc_data_addresses']
+		osc_ui   = self.config['osc_ui_addresses']
+		def addr_to_str(addr):
+			return ("%s:%d" % addr).ljust(16)
+		if osc_data:
+			oscdata_addresses = map(addr_to_str, osc_data)
+			_info("OSC OUT    : data  ---------> %s" % " | ".join(oscdata_addresses))
+		if osc_ui:
+			oscui_addresses = map(addr_to_str, osc_ui)
+			_info("           : notifications -> %s" % " | ".join(oscui_addresses))
 		if self.config == DEFAULT_CONFIG:
-			_info("using default configuration")
+			_info("CONFIG     : default")
 		if self.configfile is not None:
 			found, configfile_fullpath = envir.config_find(self.configfile)
 			if found:
-				_info("using config file: %s" % configfile_fullpath)
+				configstr = configfile_fullpath
 			else:
-				_info("cloned default config with name: %s (will be saved to %s" % (self.configfile, configfile_fullpath))
-		self._report_config()
+				configstr = "cloned default config with name: %s (will be saved to %s)" % (self.configfile, configfile_fullpath)
+			_info("CONFIGFILE : %s" % configstr)
+		_info("- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - ")
+		self.report_oscapi()
+		self.report_config()
+		
 
-	def _report_config(self):
+	def report_config(self):
 		d = self.config['input_mapping']
 		dl = list(d.iteritems())
 		dl = util.sort_natural(dl, key=lambda row:row[0])
-		lines = ["", "", "LABEL    MAPPING", "----------------------------"]
+		lines = ["\nLABEL    MAPPING", "------------------------------------------------------------"]
 		col2 = 8
 		for label, mapping in dl:
 			midi = mapping['midi']
@@ -380,19 +630,12 @@ class Pedlbrd(object):
 					maxvalue = ""
 				in0, in1 = midi['input']
 				out0, out1 = midi['output']
-
 				l = "%s    | %s  CH %2d  CC %3d  (%3d - %4d) -> (%3d - %3d)  %s" % (label.ljust(3), normalize.ljust(col2),
 					midi['channel'], midi['cc'], in0, in1, out0, out1, maxvalue)
 			lines.append(l)
-		lines.append("\n\n")
+		lines.append("")
 		s = "\n".join(lines)
 		_info( s )
-
-	def open_config(self, configfile):
-		found, configfile = envir.config_find(configfile)
-		if found:
-			self.config, self.configfile = self._load_config(configfile)
-		self.reset_state()
 
 	def _load_config(self, config=None, overrides=None, restore_session=False):
 		if config is None:
@@ -409,7 +652,7 @@ class Pedlbrd(object):
 			if configdict:
 				_, abspath = envir.config_find(config)
 				configfile = abspath
-				shutil.copy(configfile, _add_suffix(configfile, '--orig'))
+				shutil.copy(configfile, _add_suffix(configfile, '(orig)'))
 			else:
 				# configuration file not found. use it as a name, load a default
 				configfile = config
@@ -439,37 +682,6 @@ class Pedlbrd(object):
 		self.env['last_saved_env'] = envpath
 		_debug("saved env to " + envpath)
 
-	def pin2label(self, kind, pin):
-		return self.config.pin2label(kind, pin)
-
-	def label2pin(self, label):
-		"""
-		returns a tuple (kind, pin)
-		"""
-		return self.config.label2pin(label)
-
-	def config_restore_defaults(self):
-		self.config = DEFAULT_CONFIG
-		self.configfile = None
-
-	def get_last_saved(self, skip_autosave=True):
-		configfolder = envir.configpath()
-		saved = [f for f in glob.glob(os.path.join(configfolder, '*.json')) if not f.startswith('_')]
-		if saved and skip_autosave:
-			saved = [f for f in saved if 'autosaved' not in f]
-		if saved:
-			lastsaved = sorted([(os.stat(f).st_ctime, f) for f in saved])[-1][1]
-			return lastsaved
-		return None
-
-	@property 
-	def echo(self): return self._echo
-
-	@echo.setter
-	def echo(self, value):
-		self._echo = value
-		self._update_dispatch_funcs()
-
 	def __del__(self):
 		self.stop()
 
@@ -479,40 +691,8 @@ class Pedlbrd(object):
 		if not serialport:
 			raise DeviceNotFound("A Pedlbrd could not be found in the system. Make sure it is connected")
 		self._serialport = serialport
-
 		_banner("Pedlbrd found. Using port: %s" % os.path.split(serialport)[1], border_char='*', 
 			linesafter=2, linesbefore=10, margin_horiz=2)
-
-	def reset_state(self):
-		self._midi_mapping = MIDI_Mapping(self.config)
-		self._analog_maxvalues = [0 for i in range(127)]
-		self._input_labels = self.config['input_mapping'].keys()
-
-	def find_device(self, retry_period=0):
-		"""
-		find the path of the serial device. check that it is alive
-		if given, retry repeatedly until the device is found 
-
-		Returns: the path of the serial device.
-		"""
-		while True:
-			port = detect_port()
-			if not port:
-				if not retry_period:
-					return None
-				else:
-					_info('Device not found, retrying in %d seconds' % retry_period)
-					time.sleep(retry_period)
-			else:
-				return port
-
-	@property
-	def serialport(self):
-		if self._serialport:
-			return self._serialport
-		port = detect_port()
-		self._serialport = port
-		return port
 
 	def _create_dispatch_func(self, label):
 		"""
@@ -525,21 +705,71 @@ class Pedlbrd(object):
 				print "PRE: %s -> %d" % (label, value)
 				return value
 			funcs.append(preecho)
-		# normalization step if asked for
-		if label[0] == "A" and self.config['input_mapping'][label]['normalized']:
-			kind, pin = self.label2pin(label)
-			def normalize(value, pin=pin):
-				return self._analog_normalize(pin, value)
-			funcs.append(normalize)
+
+		input_mapping = self.config['input_mapping'][label]
 		midifunc = self._midi_mapping.construct_func(label)
 		midiout = self._midiout
-		if midifunc:
-			def midifunc2(value, func=midifunc):
-				msg = midifunc(value)
-				if msg:
-					midiout.send_message(msg)
-				return value
-			funcs.append(midifunc2)
+		# ----------------------
+		# Digital
+		# ----------------------
+		if label[0] == "D":
+			inverted = input_mapping['inverted']
+			sendmidi = midiout.send_message
+			if midifunc and self._osc_data_addresses:
+				def combinedfunc(value): #, addresses=self._osc_data_addresses):
+					if inverted:
+						value = 1 - value
+					sendmidi(midifunc(value))
+					self._send_osc_data('/data', label, value)
+					return value
+				funcs.append(combinedfunc)
+			elif midifunc:
+				def onlymidi(value):
+					if inverted:
+						value = 1 - value
+					sendmidi(midifunc(value))
+					return value
+				funcs.append(onlymidi)
+			elif self._osc_data_addresses:
+				def onlyosc(value, label=label):
+					if inverted:
+						value = 1 - value
+					self._send_osc_data('/data', label, value)
+					return value
+				funcs.append(onlyosc)
+		# --------------
+		# Analog
+		# --------------
+		if label[0] == "A":
+			normalized = input_mapping['normalized']
+			sendmidi = midiout.send_message
+			kind, pin = self.label2pin(label)
+			if midifunc and self._osc_data_addresses:
+				def combinedfunc(value, pin=pin):
+					if normalized:
+						value = self._analog_normalize(pin, value)
+					msg = midifunc(value)
+					if msg:
+						sendmidi(msg)
+					self._send_osc_data('/data', label, value)
+					return value
+				funcs.append(combinedfunc)
+			elif midifunc:
+				def onlymidi(value, pin=pin):
+					if normalized:
+						value = self._analog_normalize(pin, value)
+					msg = midifunc(value)
+					if msg:
+						sendmidi(msg)
+					return value
+				funcs.append(onlymidi)
+			elif self._osc_data_addresses:
+				def onlyosc(value, label=label, pin=pin):
+					if normalized:
+						value = self._analog_normalize(pin, value)
+					self._send_osc_data('/data', label, value)
+					return value
+				funcs.append(onlyosc)
 		return funcs
 
 	def _update_dispatch_funcs(self):
@@ -562,18 +792,19 @@ class Pedlbrd(object):
 		self._handlers = {
 		 	'save_env'   : _schedule_regularly(11, self._save_env)
 		}
-		if self.env.setdefault('autosave_config', True):
-			self._handlers['save_config'] = _schedule_regularly(7, self._save_config, kws={'autosave':False})
+		autosave_config_period = self.config.setdefault('autosave_config_period', 20)
+		if autosave_config_period:
+			self._handlers['save_config'] = _schedule_regularly(autosave_config_period, self._save_config, kws={'autosave':False})
 
-	def start(self, async=None):
-		"""
-		start communication (listen to device, output to midi and/or osc, etc)
+	# ***********************************************
+	#
+	# *           M A I N L O O P                   *
+	#
+	# ***********************************************
 
-		async: if True, do everything non-blocking
-		       if None, use the settings in the config ('serialloop_async')
-		"""
+	def _mainloop(self, async=None):
 		if async is None:
-			async = self.config.get('serialloop_async', False)
+			async = self.config.setdefault('serialloop_async', False)
 
 		if async:
 			import threading
@@ -587,14 +818,14 @@ class Pedlbrd(object):
 		self._update_dispatch_funcs()
 		self._update_handlers()
 
-		self._oscserver, self._oscapi = self._create_oscserver()
-		self._oscserver.start()
+		midiout      = self._midiout
+		midi_mapping = self._midi_mapping
+		config       = self.config
 
-		midiout           = self._midiout
-		midi_mapping      = self._midi_mapping
-
+		self._calibrate_digital = False
 		self._running = True
-		_banner("listening!")
+		self._set_status('running')
+		_info("\n>>> started listening!")
 		dlabels = [self.pin2label("D", i) for i in range(self.config['num_digital_pins'])]
 		alabels = [self.pin2label("A", i) for i in range(self.config['num_analog_pins'])]
 		while self._running:
@@ -602,6 +833,8 @@ class Pedlbrd(object):
 				self._serialconnection = s = serial.Serial(self.serialport, baudrate=BAUDRATE, timeout=self._serial_timeout)
 				last_heartbeat = time.time()
 				connected = True
+				if config['autocalibrate_digital']:
+					_call_later(2, self.calibrate_digital)
 				while self._running:
 					if self._paused:
 						_debug("paused...")
@@ -620,11 +853,16 @@ class Pedlbrd(object):
 							if cmd == 68:	# --> D(igital)
 								msg = s.read(3)
 								param, value = _parsemsg(msg)
-								funclist = self._dispatch_funcs_by_pin.get(("D", param))
-								self._oscreport('/raw', dlabels[param], value)
-								if funclist:
-									for func in funclist:
-										value = func(value)
+								if self._calibrate_digital:
+									label = self.pin2label('D', param)
+									config.set("input_mapping/%s/inverted" % label, bool(value))
+								else:
+									funclist = self._dispatch_funcs_by_pin.get(("D", param))
+									if self._sendraw:
+										self._send_osc_ui('/raw', dlabels[param], value)
+									if funclist:
+										for func in funclist:
+											value = func(value)
 							# -------------
 							#   ANALOG
 							# -------------
@@ -632,6 +870,8 @@ class Pedlbrd(object):
 								msg = s.read(3)
 								param, value = _parsemsg(msg)
 								funclist = self._dispatch_funcs_by_pin.get(('A', param))
+								if self._sendraw:
+									self._send_osc_ui('/raw', alabels[param], value)
 								if funclist:
 									for func in funclist:
 										value = func(value)
@@ -644,9 +884,9 @@ class Pedlbrd(object):
 								if not connected:
 									self._notify_connected()
 								connected = True
+								self._send_osc_ui('/heartbeat')
 					if (now - last_heartbeat) > 10:
 						connected = False
-						print "HERE"
 						self._notify_disconnected()
 			except KeyboardInterrupt:
 				self.stop()
@@ -660,35 +900,49 @@ class Pedlbrd(object):
 					self.stop()
 					break
 
-	def _oscreport(self, path, *data):
-		for address in self._osc_report_addresses:
-			oscsend(address, path, *data)
-
-	def save_config(self, newname=None):
+	def _send_command(self, cmd, param=0, data=0):
 		"""
-		save the current configuration
+		cmd: a byte indicating the command
+		param: an integer between 0-127
+		data: an integer between  0-16383
 
-		Arguments
-		=========
-
-		newname: like "save as", the newname is used for next savings
-
-		If a config file was used, it will be saved to this name unless
-		a new name is given.
-
-		If a default config was used ( Pedlbrd(config=None) ), then a default
-		name will be used. 
-
-		Returns
-		=======
-
-		the full path where the config file was saved
+		This function will only be called if we are _running
 		"""
-		return self._save_config(newname)
+		if not self._running:
+			_debug("asked to _send_command outside the loop (need to call start first)")
+			return
+		conn = self._serialconnection
+		b0 = data >> 7;
+		b1 = data & 0b1111111;
+		s = ''.join( [cmd, chr(param), chr(b0), chr(b1), chr(128)] )
+		conn.write(s)
+
+	def _send_osc_ui(self, path, *data):
+		if self._oscserver:
+			for address in self._osc_ui_addresses:
+				self._oscserver.send(address, path, *data)
+
+	def _set_status(self, status=None):
+		"""
+		set the status and notify it
+		if None, just notify
+
+		status must be a string
+		"""
+		if status is not None:
+			assert isinstance(status, basestring)
+			self._status = status
+			self._send_osc_ui('/status', status)
+		else:
+			self._send_osc_ui('/status', self._status)
+
+	def _send_osc_data(self, path, *data):
+		for address in self._osc_data_addresses:
+			self._oscserver.send(address, path, *data)
 
 	def _save_config(self, newname=None, autosave=False):
 		used_configfile = self.configfile
-		defaultname = 'untitled' if self.config != DEFAULT_CONFIG else 'default'
+		defaultname = 'untitled' if self.config != DEFAULT_CONFIG else DEFAULTS['configname']
 		configfile = next(f for f in (newname, used_configfile, defaultname) if f is not None)
 		assert configfile is not None
 		found, abspath = envir.config_find(configfile)
@@ -704,35 +958,15 @@ class Pedlbrd(object):
 	def edit_config(self):
 		if self.configfile and os.path.exists(self.configfile):
 			_json_editor(self.configfile)
-			self.open_config(self.configfile)
-			self._report_config()
+			#self.open_config(self.configfile)
+			#self.report_config()
 		else:
 			_error("could not find a config file to edit")
-	
-	def stop(self):
-		if not self._running:
-			_info("already stopped!")
-			return
-		_banner("stopping...", margin_vert=1)
-		self._running = False
-		time.sleep(self._serial_timeout)
-		if self._serialconnection:
-			self._serialconnection.close()
-		self._midi_turnoff()
-		self._oscserver.stop()
-		self._oscserver.free()
-		for handlername, handler in self._handlers.iteritems():
-			_debug('cancelling %s' % handlername)
-			handler.cancel()
-		if self.env.get('autosave_config', True):
-			self._save_config()
-		self._save_env()
 		
-	## ----------------------------------------------------------------------------
-	## INTERNAL
-
 	def _analog_normalize(self, pin, value):
-		"""pin here refers to the underlying arduino pin"""
+		"""
+		pin here refers to the underlying arduino pin
+		"""
 		maxvalue = self._analog_maxvalues[pin]
 		if value > maxvalue:
 			self._analog_maxvalues[pin] = value
@@ -756,10 +990,12 @@ class Pedlbrd(object):
 	def _notify_disconnected(self):
 		msg = "DISCONNECTED!"
 		_info(msg)
+		self._set_status('disconnected')
 
 	def _notify_connected(self):
 		msg = "CONNECTED!"
 		_info(msg)
+		self._set_status('connected')
 
 	def _reconnect(self):
 		"""
@@ -787,59 +1023,250 @@ class Pedlbrd(object):
 					break
 		if out:
 			self._notify_connected()
+			if self.config['autocalibrate_digital']:
+				_call_later(2, self.calibrate_digital)
+			self.reset_state()
 		return out
 
 	def _configchanged_callback(self, key, value):
 		_debug('changing config %s=%s' % (key, str(value)))
 		paths = key.split("/")
-		if paths[0] == 'input_mapping':
+		paths0 = paths[0]
+		if paths0 == 'input_mapping':
 			label = paths[1]
 			self._input_changed(label)
-			self._report_config()
+			if "channel" in key:
+				self._update_midichannel()
+		elif paths0 == 'osc_send_raw_data':
+			self._sendraw = value
+			_debug('send raw data: %s' % (str(value)))
+		elif paths0 == 'osc_data_addresses' or paths0 == 'osc_ui_addresses':
+			self._cache_osc_addresses()
 
 	# -------------------------------------------
 	# External API
-	def cmd_digitalinvert(self, label, value):
-		""" 
-		label = D1, D2, etc
-		1=inverted, 0=normal 
+	#
+	# methodname: cmd_[cmdname]_[signature]
+	#
+	# -------------------------------------------
+	def cmd_digitalinvert_si(self, label, value):
 		"""
-		if label[0] != "D":
-			_error("label '%s' not a digital input! bypassing" % label)
-			return 
-		path = "input_mapping/%s/inverted" % label
-		value = bool(value)
-		self.config.set(path, value)
+		invert a digital input. 
+		"""
+		labels = self._match_labels(label)
+		for label in labels:
+			path = "input_mapping/%s/inverted" % label
+			value = bool(value)
+			self.config.set(path, value)
 
-	def cmd_midichannel(self, label, channel):
-		path = 'input_mapping/%s/midi/channel' % label
+	def cmd_midichannel_si(self, label, channel):
+		"""set the channel of the input"""
+		labels = self._match_labels(label)
 		if not 0 <= channel < 16:
 			_error("midi channel should be between 0 and 15, got %d" % channel)
 			return 
-		self.config.set(path, channel)
+		for label in labels:
+			path = 'input_mapping/%s/midi/channel' % label
+			self.config.set(path, channel)
 
-	def cmd_midicc(self, label, cc):
+	def cmd_midicc_si(self, label, cc):
+		"""set the cc. of input"""
 		path = 'input_mapping/%s/midi/cc' % label
 		if not 0 <= cc < 128:
 			_error("midi CC should be between 0 and 127, got %d" % cc)
 			return 
 		self.config.set(path, cc)
 
-	def _create_oscserver(self):
+	def cmd_resetstate_(self):
+		"""
+		reset state, doesn't change config
+		"""
+		self.reset_state()
+		_info('reset state!')
+
+	def cmd_resetconfig_(self):
+		"""reset config to default values"""
+		self.config_restore_defaults()
+		_info('config reset to defaults')
+
+	def cmd_calibrate_(self):
+		""" calibrate digital inputs """
+		_debug('calibrating...')
+		self.calibrate_digital()
+		self.report()
+
+	def cmd_openlog_i(self, debug=0):
+		"""if debug is 1, open the debug console"""
+		self.open_log(debug=bool(debug))
+
+	def cmd_registerui_meta(self, path, args, types, src, report=True):
+		""" register to receive notifications """
+		addresses = self.config.get('osc_ui_addresses', [])
+		addr = _sanitize_osc_address(src.hostname, src.port)
+		if addr not in addresses:
+			addresses.append(addr)
+			self.config.set('osc_ui_addresses', addresses)
+			if report:
+				self.report()
+
+	def cmd_registerdata_meta(self, path, args, types, src, report=True):
+		""" register to receive data """
+		addresses = self.config.get('osc_data_addresses', [])
+		addr = _sanitize_osc_address(src.hostname, src.port)
+		if addr not in addresses:
+			addresses.append(host, port)
+			self.config.set('osc_data_addresses', addresses)
+			if report:
+				self.report()
+
+	def cmd_registerall_meta(self, path, args, types, src):
+		""" register to receive both data and notifications """
+		self.cmd_registerui_meta(path, args, types, src, report=False)
+		self.cmd_registerdata_meta(path, args, types, src, report=True)
+		
+	def cmd_help_(self):
+		self.report_oscapi()
+
+	def cmd_dumpconfig_(self):
+		self.report()
+
+	def cmd_getstatus_(self):
+		""" sends the status to /status"""
+		self._set_status()
+
+	def _update_midichannel(self):
+		m = self.config['input_mapping']
+		midichs = []
+		for label, mapping in m.iteritems():
+			midichs.append(mapping['midi']['channel'])
+		midichs = list(set(midichs))
+		if len(midichs) > 1:
+			_debug('asked for midichannel, but more than one midichannel found!')
+		midich = midichs[0]
+		if self._midichannel != midich:
+			self._midichannel = midichs[0]
+			self._send_osc_ui('/midich', self._midichannel)
+
+	def cmd_getmidichannel_(self):
+		self._send_osc_ui('/midich', self._midichannel)
+		
+	def open_log(self, debug=False):
+		if sys.platform == 'darwin':
+			os.system("open -a Console %s" % logger.filename_info)
+			if debug:
+				os.system("open -a Console %s" % logger.filename_debug)
+		else:
+			_error("...")
+	
+	# --------------------------------------------------------
+	# OSC server
+	# --------------------------------------------------------
+
+	def _osc_get_commands(self):
 		cmds = [(a, getattr(self, a)) for a in dir(self) if a.startswith('cmd_')]
+		out = []
+		def parsecmd(cmd):
+			_, path, signature = cmdname.split('_')
+			if not signature: 
+				signature = None
+			path = "/" + path
+			return path, signature
+		for cmdname, method in cmds:
+			path, signature = parsecmd(cmdname)
+			out.append((cmdname, method, path, signature))
+		return out
+
+	def _create_oscserver(self):
+		"""
+		create the OSC server on an independent Thread (ServerThread)
+
+		Populate the methods with all the commands defined in this class
+		(methods beginning with cmd_)
+
+		Returns
+		=======
+
+		(the osc-server, a dictionary of osc-commands)
+		"""
 		s = liblo.ServerThread(self.config['osc_port'])
 		osc_commands = {}
-		for cmdname, method in cmds:
-			path = "/%s" % cmdname[4:]
-			func = _func2osc(method)
-			s.add_method(path, "si", func)
+		for cmdname, method, path, signature in self._osc_get_commands():
+			if signature == 'meta':
+				# functions annotated as meta will be called directly
+				_debug('registering osc %s --> %s' % (path, method))
+				s.add_method(path, None, method)
+			else:
+				# in all other cases, functions are wrapped and arguments are extracted
+				func = _func2osc(method)
+				_debug('registering osc %s --> %s --> %s' % (path, func, method))
+				s.add_method(path, signature, func)
 			osc_commands[path] = func
 		return s, osc_commands
+
+	def report_oscapi(self):
+		lines = []
+		ip, oscport = _get_ip(), self.config['osc_port']
+		msg = "    OSC Input    |    IP %s    PORT %d    " % (ip, oscport)
+		lines.append("=" * len(msg))
+		lines.append(msg)
+		lines.append("=" * len(msg))
+		lines2 = []
+		def get_args(method, signature):
+			argnames = [arg for arg in inspect.getargspec(method).args if arg != 'self']
+			if not signature:
+				return []
+			osc2arg = {
+				's': 'str',
+				'i': 'int',
+				'd': 'double'
+			}
+			out = ["%s:%s" % (argname, osc2arg.get(argtype, '?')) for argtype, argname in zip(signature, argnames)]
+			return out
+		for cmdname, method, path, signature in self._osc_get_commands():
+			sign_col_width = 26
+			no_sig = " -".ljust(sign_col_width)
+			if signature and signature != "meta":
+				args = get_args(method, signature)
+				signature = ", ".join(args)
+				signature = ("(%s)" % signature).ljust(sign_col_width) if signature else no_sig
+			else:
+				signature = no_sig
+			doc = inspect.getdoc(method)
+			if doc:
+				docstr = doc[:48]
+			else:
+				docstr = ""
+			l = "%s %s | %s" % (path.ljust(16), signature, docstr)
+			lines2.append(l)
+		lines2.sort()
+		lines.extend(lines2)
+		lines.append("\nlabel: identifies the input. Valid labels are: D1-D10, A1-A4")
+		lines.append("Example: oscsend %s %d /midicc D2 41" % (ip, oscport))
+		lines.append("         oscsend %s %s /midichannel * 2" % (ip, oscport))
+		s = "\n".join(lines)
+		_info(s)
+
+	def _match_labels(self, pattr):
+		out = []
+		for label in self._labels:
+			if fnmatch.fnmatch(label, pattr):
+				out.append(label)
+		return out
+
+def _get_ip():
+	import socket
+	return socket.gethostbyname(socket.gethostname())
 
 def _func2osc(func):
 	def wrap(path, args, types, src):
 		func(*args)
 	return wrap
+
+def _sanitize_osc_address(host, port):
+	if host == "localhost": 
+		host = "127.0.0.1"
+	assert isinstance(port, int)
+	return host, port
 
 ##########################################
 # Printing and Logging
@@ -871,19 +1298,23 @@ def _makemsg(msg, border=True, margin_horiz=4, margin_vert=0, linesbefore=1, lin
 	out = "\n".join(lines)
 	return out
 
-def _banner(msg, margin_horiz=4, margin_vert=0, linesbefore=2, linesafter=1, border_char="#"):
+def _banner(msg, margin_horiz=4, margin_vert=0, linesbefore=0, linesafter=1, border_char="#"):
 	s = _makemsg(msg, margin_horiz=margin_horiz, margin_vert=margin_vert, 
 		linesbefore=linesbefore, linesafter=linesafter, border_char=border_char)
-	_log.info(s)
+	logger.info(s)
 
-def _info(msg, prompt="--> "):
-	_log.info(" %s%s" % (prompt, msg))
+def _info(msg):
+	"""
+	msg can only be one line
+	"""
+	logger.info(msg)
 
 def _debug(msg):
-	_log.debug(msg)
+	logger.debug(msg)
 
 def _error(msg):
-	_log.error(msg)
+	logger.error(msg)
+	print "ERROR:", msg
 
 def _json_editor(jsonfile):
 	if sys.platform == 'darwin':

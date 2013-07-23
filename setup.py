@@ -7,9 +7,10 @@ Usage:
 
 from setuptools import setup
 
-APP = ['pedlbrd-app.py']
+APP = ['Pedlbrd.py']
 DATA_FILES = []
-OPTIONS = {'argv_emulation': True}
+OPTIONS = {'argv_emulation': True,
+ 'iconfile': '/Users/edu/dev/pedlbrd/images/pedlbrd-icon.icns'}
 
 setup(
     app=APP,

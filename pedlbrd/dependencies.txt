@@ -1,0 +1,12 @@
+## core
+    * pyserial
+    * rtmidi2  --> cython
+    * liblo    --> cython
+    * timer2
+
+## qtgui
+    * PySide
+
+
+
+

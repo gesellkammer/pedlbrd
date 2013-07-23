@@ -1,3 +1,4 @@
+#stdlib
 import os
 import json
 import glob
@@ -29,10 +30,14 @@ def config_find(configname):
 	"""
 	configname is a simple name or a full path
 
-	Returns
+	Returns 
 	=======
 
-	(found, the absolute path of the config file)
+	If config-file was found:
+	- (True, absolute_path_of_configfile)
+
+	Else:
+	- (False, absolute_path_of_configfile_to_create)
 	"""
 	folder, name = os.path.split(configname)
 	ext = os.path.splitext(name)[1]
@@ -57,16 +62,18 @@ def config_find(configname):
 
 def config_load(configfile):
 	"""
-	config is 
+	find configfile, load it as a dictionary
 	"""
 	assert isinstance(configfile, basestring)
 	found, configfile = config_find(configfile)
-	if found:
-		d = json.load(open(configfile))
-		return d
-	return None
+	out = json.load(open(configfile)) if found else None
+	assert isinstance(out, dict) or (out is None)
+	return out
 
 def possible_ports():
+	"""
+	return a list of possible serial ports to look for an arduino device
+	"""
 	if sys.platform == 'darwin':
 		ports = glob.glob("/dev/tty.usbmodem*")
 	else:

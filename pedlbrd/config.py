@@ -7,19 +7,30 @@
 #######################################################
 
 DEFAULT_CONFIG = {
-	'midi_device_name' : 'PEDLBRD',
-	# 'configname' : 'DEFAULT',
-	'osc_port' : 47120,
-	'osc_report_addresses' : [ ("localhost", 47121) ], 
-	'reconnect_period_seconds': 1,     # 0 if no reconnection should be attempted 
-	'firsttime_retry_period': 1,       # if possitive, dont give up if no device present at creation time, try to reconnect
-	'osc_out_addresses' : [],
-	'autostart': True,
 	'num_digital_pins': 12,
-	'num_analog_pins': 4,
+	'num_analog_pins' : 4,
+
+	'autocalibrate_digital' : True,
+	'open_log_at_startup': True,
+
+	# OSC
+	'osc_port' : 47120,
+	'osc_ui_addresses'   : [ ("127.0.0.1", 47121) ], 
+	'osc_data_addresses' : [ ("127.0.0.1", 47121) ],
+	'osc_send_raw_data': True,
+
+	# CONNECTION
+	'reconnect_period_seconds': 1,     # 0 if no reconnection should be attempted 
+	'firsttime_retry_period': 0.3,       # if possitive, dont give up if no device present at creation time, try to reconnect
+	'autostart': True,
+	'autosave_config_period': 20,
 	'serialloop_async': True,
+
+	# MIDI
+	'midi_device_name' : 'PEDLBRD',
+	
+	# PIN DEFINITIONS 
 	'input_definition': {
-	# label     definition
 		'D1' : {'pin':'D2'},
 		'D2' : {'pin':'D3'},
 		'D3' : {'pin':'D4'},
@@ -35,6 +46,7 @@ DEFAULT_CONFIG = {
 		'A3' : {'pin':'A2'},
 		'A4' : {'pin':'A3'},
 	},
+
 	# ----------------------------------------------------- 
 	# inputs are the UI side of pins, identified by a label
 	# -----------------------------------------------------
@@ -85,12 +97,18 @@ DEFAULT_CONFIG = {
 }
 
 # ---------------------------------------
+# Here go default constants
 DEFAULTS = {
-	'envname' : '__env__'
+	'envname'    : '__env__',
+	'configname' : '__default__'
 }
 
+# Here go the settings that are hardware independent
 DEFAULT_ENV = {
 	'restore_session': True,
 	'envname' : DEFAULTS['envname'],
-	'autosave_config': True
+	'info_max_length' : 60,
+	'last_saved_env': '',
+	'last_loaded_env': '',
+	'last_saved_config': ''
 }
