@@ -11,7 +11,7 @@ DEFAULT_CONFIG = {
 	'num_analog_pins' : 4,
 
 	'autocalibrate_digital' : True,
-	'open_log_at_startup': True,
+	'open_log_at_startup': False,
 
 	# OSC
 	'osc_port' : 47120,
@@ -20,8 +20,9 @@ DEFAULT_CONFIG = {
 	'osc_send_raw_data': True,
 
 	# CONNECTION
-	'reconnect_period_seconds': 1,     # 0 if no reconnection should be attempted 
-	'firsttime_retry_period': 0.3,       # if possitive, dont give up if no device present at creation time, try to reconnect
+	'firsttime_retry_period': 0.3,     # if possitive, dont give up if no device present at creation time, try to reconnect
+	'firsttime_accept_fail': True,     # dont fail if there is no connection. Build everything and drops to noconnection state
+	'reconnect_period_seconds': 0.5,     # 0 if no reconnection should be attempted 
 	'autostart': True,
 	'autosave_config_period': 20,
 	'serialloop_async': True,

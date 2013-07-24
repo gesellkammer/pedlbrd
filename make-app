@@ -19,7 +19,7 @@ done
 cp $ENTRY.py $BUILDFOLDER
 
 cd $BUILDFOLDER
-py2applet --make-setup Pedlbrd.py images/pedlbrd-icon.icns
+py2applet --make-setup Pedlbrd.py assets/pedlbrd-icon.icns
 python setup.py py2app
 cd ..
 
