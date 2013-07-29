@@ -49,8 +49,8 @@ INPUT
 #define SMOOTH 50            // (0-100). 0=no smoothing
 
 /* DEBUG Flags, comment out as appropriate */
-#define DEBUG
-#define DISABLE_HEARTBEAT
+// #define DEBUG
+
 
 /* PROTOCOL */
 #define BAUDRATE 57600
@@ -203,7 +203,8 @@ void loop() {
 
 	// Heartbeat
 	now = millis();
-	#ifndef DISABLE_HEARTBEAT
+	
+	#ifndef DEBUG
 		if( (now - last_heartbeat > heartbeat_period) || (last_heartbeat > now) ) {
 			send_heartbeat();
 			last_heartbeat = now;
