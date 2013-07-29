@@ -95,6 +95,10 @@ CC = 176
 
 CMD_FORCE_DIGITAL = 'F'
 
+ERRORCODES = {
+	7: 'ERROR_COMMAND_BUF_OVERFLOW'
+}
+
 ###############################
 # Helper functions
 ###############################
@@ -380,6 +384,7 @@ class Pedlbrd(object):
 		self._oscserver = None
 		self._oscapi    = None
 		self._midichannel = -1
+		self._reply_funcs = {}
 
 		self.reset_state()
 		self._cache_update()
@@ -536,18 +541,18 @@ class Pedlbrd(object):
 
 	def calibrate_digital(self):
 		"""
-		call this functio with all digital input devices
-		untouched. this will be the 0 state, devices which
+		call this function with all digital input devices
+		untouched. this will be the 'rest' state, devices which
 		untouched send 1 will be inverted
 
-		This has only sense por "push-to-talk" devices
+		This has only sense por "push-to-talk" devices.
 		Latching devices (toggle) should be put in the
 		off position before calibration
 		"""
 		if self._running:
 			self._calibrate_digital = True
 			self._send_command(CMD_FORCE_DIGITAL, 0, 0)
-			time.sleep(0.2)
+			time.sleep(0.5)
 			self._calibrate_digital = False
 		else:
 			_error("attempted to calibrate digital inputs outside of main loop")
@@ -558,6 +563,13 @@ class Pedlbrd(object):
 	#          P R I V A T E
 	#
 	####################################################
+
+	def _register_reply_func(self, param, func):
+		"""
+		param: a number from 0-127
+		func : a function taking one integer argument
+		"""
+		self._reply_funcs[param] = func
 
 	def _cache_osc_addresses(self):
 		def as_address(addr):
@@ -610,6 +622,21 @@ class Pedlbrd(object):
 		self.report_oscapi()
 		self.report_config()
 
+	def _digitalmap(self):
+		dl = list(self.config['input_mapping'].iteritems())
+		dl = util.sort_natural(dl, key=lambda row:row[0])
+		out = []
+		for label, mapping in dl:
+			if label[0] == "D":
+				out.append((label, mapping['inverted']))
+		return out
+
+	def _digitalmapstr(self):
+		m = self._digitalmap()
+		out = []
+		for label, inverted in m:
+			out.append("X" if inverted else "_")
+		return ''.join(out)
 
 	def report_config(self):
 		d = self.config['input_mapping']
@@ -843,8 +870,6 @@ class Pedlbrd(object):
 				self._serialconnection = s = serial.Serial(self.serialport, baudrate=BAUDRATE, timeout=self._serial_timeout)
 				last_heartbeat = time.time()
 				connected = True
-				if config['autocalibrate_digital']:
-					_call_later(2, self.calibrate_digital)
 				while self._running:
 					if self._paused:
 						_debug("paused...")
@@ -858,25 +883,9 @@ class Pedlbrd(object):
 						if b & 0b10000000:  # got a message, read the next bytes according to which message
 							cmd = b & 0b01111111
 							# -------------
-							#    DIGITAL
-							# -------------
-							if cmd == 68:	# --> D(igital)
-								msg = s.read(3)
-								param, value = _parsemsg(msg)
-								if self._calibrate_digital:
-									label = self.pin2label('D', param)
-									config.set("input_mapping/%s/inverted" % label, bool(value))
-								else:
-									funclist = self._dispatch_funcs_by_pin.get(("D", param))
-									if self._sendraw:
-										self._send_osc_ui('/raw', dlabels[param], value)
-									if funclist:
-										for func in funclist:
-											value = func(value)
-							# -------------
 							#   ANALOG
 							# -------------
-							elif cmd == 65: # --> A(nalog)
+							if cmd == 65: # --> A(nalog)
 								msg = s.read(3)
 								param, value = _parsemsg(msg)
 								funclist = self._dispatch_funcs_by_pin.get(('A', param))
@@ -885,6 +894,22 @@ class Pedlbrd(object):
 								if funclist:
 									for func in funclist:
 										value = func(value)
+							# -------------
+							#    DIGITAL
+							# -------------
+							elif cmd == 68:	# --> D(igital)
+								msg = s.read(3)
+								param, value = _parsemsg(msg) # TODO: inline this function
+								if not self._calibrate_digital:
+									if self._sendraw:
+										self._send_osc_ui('/raw', dlabels[param], value)
+									funclist = self._dispatch_funcs_by_pin.get(("D", param))
+									if funclist:
+										for func in funclist:
+											value = func(value)								
+								else:
+									label = self.pin2label('D', param)
+									config.set("input_mapping/%s/inverted" % label, bool(value))	
 							# -------------
 							#   HEARTBEAT
 							# -------------
@@ -895,20 +920,32 @@ class Pedlbrd(object):
 									self._notify_connected()
 								connected = True
 								self._send_osc_ui('/heartbeat')
+							# -------------
+							#    REPLY
+							# -------------
+							elif cmd == 82: # --> R(eply)
+								param = ord(s.read(1))
+								func = self._reply_funcs.get(param)
+								if func:
+									value = ord(s.read(1)) * 128 + ord(s.read(1))
+									func(value)
+									del self._reply_funcs[param]
+								else:
+									# discard reply
+									_debug('no callback for param %d' % param)
+									s.read(2)
 					if (now - last_heartbeat) > 10:
 						connected = False
 						self._notify_disconnected()
 			except KeyboardInterrupt:
+				# poner una opcion en config para decidir si hay que interrumpir por ctrl-c
 				self.stop()
 				break
 			except OSError:   # arduino disconnected -> s.read throws device not configured
 				pass
 			except serial.SerialException:
 				pass
-				# if not self._reconnect():
-				# 	self.stop()
-				# 	break
-
+				
 	def _send_command(self, cmd, param=0, data=0):
 		"""
 		cmd: a byte indicating the command
@@ -1035,7 +1072,7 @@ class Pedlbrd(object):
 		if out:
 			self._notify_connected()
 			if self.config['autocalibrate_digital']:
-				_call_later(2, self.calibrate_digital)
+				_call_later(3, self.calibrate_digital)
 			self.reset_state()
 		return out
 
@@ -1145,6 +1182,32 @@ class Pedlbrd(object):
 		""" sends the status to /status"""
 		self._set_status()
 
+	def cmd_askHeartperiod_i(self, reply_id):
+		""" ask heartbeat rate in ms. ==> /reply reply_id value"""
+		self._ask(ord('H'), 0, reply_id)
+
+	def _ask(param, arg, reply_id):
+		def callback(outvalue):
+			self._send_osc_ui('/reply', reply_id, outvalue)
+		self._register_reply_func(param, callback)
+		self._send_command('G', param, arg)
+
+	def cmd_askDigitalmapstr_i(self, reply_id):
+		mapstr = self._digitalmapstr()
+		print "MAPSTR", mapstr
+		self._send_osc_ui('/reply', reply_id, mapstr)
+
+	def cmd_askMidichannel_i(self, reply_id):
+		"""ask the midichannel to send data to ==> /reply reply_id value"""
+		self._send_osc_ui('/reply', reply_id, self._midichannel)
+
+	def cmd_setHeartperiod_i(self, value):
+		"""set the heartbeat period in ms"""
+		self._send_command('S', 72, value)
+
+	def cmd_quit_(self):
+		self.stop()
+
 	def _update_midichannel(self):
 		m = self.config['input_mapping']
 		midichs = []
@@ -1158,8 +1221,6 @@ class Pedlbrd(object):
 			self._midichannel = midichs[0]
 			self._send_osc_ui('/midich', self._midichannel)
 
-	def cmd_getmidichannel_(self):
-		self._send_osc_ui('/midich', self._midichannel)
 
 	def open_log(self, debug=False):
 		if sys.platform == 'darwin':
@@ -1178,6 +1239,12 @@ class Pedlbrd(object):
 		out = []
 		def parsecmd(cmd):
 			_, path, signature = cmdname.split('_')
+			chs = []
+			for ch in path:
+				if ch.isupper():
+					chs.append('/')
+				chs.append(ch.lower())	
+			path = ''.join(chs)
 			if not signature:
 				signature = None
 			path = "/" + path
@@ -1244,7 +1311,7 @@ class Pedlbrd(object):
 				signature = no_sig
 			doc = inspect.getdoc(method)
 			if doc:
-				docstr = doc[:48]
+				docstr = doc[:60]
 			else:
 				docstr = ""
 			l = "%s %s | %s" % (path.ljust(16), signature, docstr)

@@ -11,7 +11,7 @@ if WITHGUI:
 	p.start(async=True)
 	try:
 		gui.start(p.config['osc_port'])
-	except KeyboardInterrupt:
+	except:
 		pass
 	p.stop()
 

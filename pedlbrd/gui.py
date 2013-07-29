@@ -4,6 +4,7 @@ import time
 import shutil
 import glob
 import liblo
+import Queue
 
 from Tkinter import Tk, StringVar
 import ttk
@@ -54,22 +55,72 @@ def get_ip():
 
 class GUI(object):
 	def __init__(self, pedlbrd_oscport):
-		self._status = 'NOT CONNECTED'
-		self._pedlbrd_oscport = pedlbrd_oscport
+		self._connection = 'NOT CONNECTED'
+		self._core_oscport = pedlbrd_oscport
 		self.oscserver = self.make_oscserver(pedlbrd_oscport)
 		self.setup_widgets()
 		self.oscserver.start()
+		self._reply_callbacks = {}
+		self._replyid = 0
 
 	def make_oscserver(self, pedlbrd_oscport):
-		s = liblo.ServerThread()
 		def heartbeat(path, args):
 			self.heartbeat()
 		def status_handler(path, args):
 			self.set_status(args[0])
+		def reply_handler(path, args):
+			ID = args[0]
+			callback = self._reply_callbacks[ID]
+			if callback:
+				try:
+					callback(*args[1:])
+				except:
+					print "Error in reply callback:", sys.exc_info()[0]
+		s = liblo.ServerThread()
 		s.add_method('/heartbeat', None, heartbeat)
 		s.add_method('/status', 's', status_handler)
+		s.add_method('/reply', None, reply_handler)
 		s.send(pedlbrd_oscport, '/registerui')
 		return s
+
+	def osc_ask_sync(self, path, done_callback=None, timeout=1):
+		queue = Queue.Queue()
+		def callback(*args):
+			if done_callback:
+				done_callback(*args)
+			queue.put(args)
+		self.osc_ask(path, callback)
+		if done_callback is None:
+			try:
+				out = queue.get(timeout=timeout)
+			except Queue.Empty:
+				return None
+			return out
+
+	def get_midichannel(self, done_callback=None):
+		"""
+		done_callback: if None, we will block until answer is there
+		               Otherwise we return and when the answer is ready,
+		               the callback is called with it
+		"""
+		return self.osc_ask_sync('/ask/midichannel', done_callback)[0]
+
+	def get_digitalmapstr(self, done_callback=None):
+		mapstr = self.osc_ask_sync('/ask/digitalmapstr', done_callback)
+		if mapstr is not None:
+			return mapstr[0]
+			
+	def _get_reply_id(self):
+		self._replyid += 1
+		self._replyid %= 127
+		return self._replyid
+
+	def osc_ask(self, path, callback, *args):
+		ID = self._get_reply_id()
+		print "asking with ID", ID
+		self._reply_callbacks[ID] = callback
+		print "sending to port", self._core_oscport, path, args
+		self.oscserver.send(self._core_oscport, path, ID, *args)
 
 	def setup_widgets(self):
 		self.win = Tk()
@@ -94,7 +145,8 @@ class GUI(object):
 		fonts = {
 			'button'   : tkFont.Font(family='Abel', size=36),
 			'label'    : tkFont.Font(family='Abel', size=36),
-			'statusbar': tkFont.Font(family='Abel', size=24)
+			#'statusbar': tkFont.Font(family='Abel', size=24)
+			'statusbar': tkFont.Font(family='Courier', size=16)
 		}
 
 		btn_style = defstyle('flat.TButton',
@@ -143,76 +195,102 @@ class GUI(object):
 
 		# STATUS //////////////////////////////////////
 
-		status_frame = ttk.Frame(root, style='btnframe.TFrame')
-		status_frame.grid(column=0, row=0, columnspan=10, sticky='we', padx=padx*2, pady=pady*2)
+		status_frame = ttk.Frame(root, style='btnframe.TFrame').grid(
+			column=0, row=0, columnspan=10, sticky='we', padx=padx*2, pady=pady*2
+		)
 
-		ttk.Label(status_frame, text='%s//%d ' % (str(get_ip()), self.oscserver.port), style='statusbar.TLabel').grid(
-			column=0, row=0, columnspan=2, sticky='w', padx=padx
+		self.var_statusbar = StringVar(value="")
+		ttk.Label(status_frame, textvariable=self.var_statusbar, style='statusbar.TLabel').grid(
+			column=0, row=0, columnspan=6, sticky='w', padx=padx
 		)
 
 		ttk.Label(status_frame, text='STATUS', style='label_static.TLabel').grid(
 			column=0, row=2, columnspan=2, rowspan=2, sticky='w' , padx=padx, pady=pady
 		)
 
-		self.statusvar = StringVar()
-		self.statusvar.set('NOCONNECTION')
-		ttk.Label(status_frame, textvariable=self.statusvar, style='label_dynamic.TLabel').grid(
+		self.var_connection = StringVar(value='NOCONNECTION')
+		ttk.Label(status_frame, textvariable=self.var_connection, style='label_dynamic.TLabel').grid(
 			column=2, row=2, columnspan=8, rowspan=2, sticky="wens" , padx=padx, pady=pady
 		)
 
 		# BUTTONS ///////////////////////////////////////
 
-		# -- Frame
-		#frame_buttons = ttk.Frame(status_frame, style='btnframe.TFrame')
-		#frame_buttons.grid(column=0, row=2, sticky='nsew', padx=padx*2, pady=pady*2)
 		frame_buttons = status_frame
+		button_row = 4
 
-		# -- Buttons
 		self.btn_reset = ttk.Button(frame_buttons, text='RESET', style='flat.TButton', command=self.click_reset).grid(
-			column=0, row=4, columnspan=2, rowspan=2,
+			column=0, row=button_row, columnspan=2, rowspan=2,
 			padx=padx, pady=pady, ipadx=ipadx, ipady=ipady, sticky="nswe"
 		)
 
 		self.btn_ctrlpanel = ttk.Button(frame_buttons, text='CONTROL PANEL', style='flat.TButton', command=self.click_ctrl).grid(
-			column=2, row=4, columnspan=2, rowspan=2,
+			column=2, row=button_row, columnspan=2, rowspan=2,
 			padx=padx, pady=pady, ipadx=ipadx, ipady=ipady, sticky="nswe"
 		)
 
 		self.btn_log = ttk.Button(frame_buttons, text='CONSOLE', style='flat.TButton', command=self.click_console).grid(
-			column=4, row=4, padx=padx, pady=pady, ipadx=ipadx, ipady=ipady, sticky="nswe"
+			column=4, row=button_row, padx=padx, pady=pady, ipadx=ipadx, ipady=ipady, sticky="nswe"
 		)
+
 		self.btn_quit = ttk.Button(frame_buttons, text='QUIT', style='flat.TButton', command=self.click_quit).grid(
-			column=4, row=5, padx=padx, pady=pady, ipadx=ipadx, ipady=ipady, sticky="nswe"
+			column=4, row=button_row+1, padx=padx, pady=pady, ipadx=ipadx, ipady=ipady, sticky="nswe"
 		)
+
+	def sendtocore(self, path, *args):
+		self.oscserver.send(self._core_oscport, path, *args)
 
 	def click_quit(self):
+		self.sendtocore('/stop')
 		self.oscserver.stop()
-		time.sleep(0.3)
-		self.oscserver.free()
-		self.win.quit()
-
+		self.win.after(200, lambda:
+			self.oscserver.free() or
+			self.win.quit()
+		)
+		
 	def click_reset(self):
-		s = self.oscserver
-		port = self._pedlbrd_oscport
-		s.send(port, '/resetstate')
-		time.sleep(0.1)
-		s.send(port, '/calibrate')
-
+		running = self._connection == 'ACTIVE'
+		if not running:
+			print "Connection not ACTIVE, cannot RESET"
+			return
+		self.sendtocore('/resetstate')
+		self.win.after(200, lambda:
+			self.sendtocore('/calibrate') or 
+			self.statusbar_update()
+		)
+		
 	def click_ctrl(self):
 		print "NOT IMPLEMENTED"
 
 	def click_console(self):
-		self.oscserver.send(self._pedlbrd_oscport, '/openlog', 0)
+		self.sendtocore('/dumpconfig')
+		self.sendtocore('/openlog', 1)
 
 	def heartbeat(self):
 		self.set_status('ACTIVE')
 
 	def set_status(self, status):
 		status = status.upper()
-		if status == self._status:
+		oldstatus = self._connection
+		if status == oldstatus:
 			return
-		self._status = status
-		self.statusvar.set( status )
+		self._connection = status
+		self.var_connection.set( status )	
+		if status == 'ACTIVE':
+			self.win.after(200, self.statusbar_update)
+
+	def statusbar_update(self):
+		midichannel = self.get_midichannel()
+		digitalmap  = self.get_digitalmapstr()
+		statusbar_separator = '      '
+		statusbar_text = 'MIDI CHANNEL: {midich}{sep}OSC: {dev_ip}//{dev_port}{sep}{digitalmap}'.format(
+			dev_ip=str(get_ip()),  # TODO: get ip only once, it wont change
+			dev_port=self._core_oscport,
+			sep=statusbar_separator,
+			midich=midichannel,
+			digitalmap=digitalmap
+
+		)
+		self.var_statusbar.set(statusbar_text)
 
 	def start(self):
 		self.win.mainloop()
