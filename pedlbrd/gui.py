@@ -10,6 +10,8 @@ from Tkinter import Tk, StringVar
 import ttk
 import tkFont
 
+IP = ""
+
 def install_fonts():
 	fonts = glob.glob("assets/fonts/*")
 	installed = False
@@ -49,6 +51,10 @@ def get_ip():
 	import socket
 	return socket.gethostbyname(socket.gethostname())
 
+def open_monitor():
+	if sys.platform == 'darwin':
+		os.system("open -a 'MIDI Monitor'")
+
 ######################
 # GUI
 ######################
@@ -62,6 +68,7 @@ class GUI(object):
 		self.oscserver.start()
 		self._reply_callbacks = {}
 		self._replyid = 0
+		self._ip = None
 
 	def make_oscserver(self, pedlbrd_oscport):
 		def heartbeat(path, args):
@@ -105,9 +112,22 @@ class GUI(object):
 		"""
 		return self.osc_ask_sync('/ask/midichannel', done_callback)[0]
 
-	def get_digitalmapstr(self, done_callback=None):
-		mapstr = self.osc_ask_sync('/ask/digitalmapstr', done_callback)
-		if mapstr is not None:
+	def get_digitalmapstr(self, done_callback=None, normal='-', inverted='X'):
+		"""
+		Pedlbrd normalized digital inputs, so that a device at rest outputs 0
+		get a string representation of the invertion mapping of the digital inputs
+
+		UNTOUCHES STATE   
+		0                 -> NORMAL
+		1                 -> INVERTED
+		"""
+		reply = self.osc_ask_sync('/ask/digitalmapstr', done_callback)
+		if reply is not None:
+			s = reply[0]
+			if normal != '_':
+				s = s.replace('_', normal)
+			if inverted != 'X':
+				s = s.replace('X', inverted)
 			return mapstr[0]
 			
 	def _get_reply_id(self):
@@ -145,7 +165,6 @@ class GUI(object):
 		fonts = {
 			'button'   : tkFont.Font(family='Abel', size=36),
 			'label'    : tkFont.Font(family='Abel', size=36),
-			#'statusbar': tkFont.Font(family='Abel', size=24)
 			'statusbar': tkFont.Font(family='Courier', size=16)
 		}
 
@@ -184,11 +203,6 @@ class GUI(object):
 			background='white'
 		)
 
-		defstyle('faint.TSeparator',
-			background = '#FEFEFE',
-			foreground = '#FEFEFE'
-		)
-
 		# /////////////////////////////////////////////
 		# WIDGETS
 		# /////////////////////////////////////////////
@@ -224,13 +238,19 @@ class GUI(object):
 		)
 
 		self.btn_ctrlpanel = ttk.Button(frame_buttons, text='CONTROL PANEL', style='flat.TButton', command=self.click_ctrl).grid(
-			column=2, row=button_row, columnspan=2, rowspan=2,
+			column=2, row=button_row, columnspan=2, rowspan=1,
 			padx=padx, pady=pady, ipadx=ipadx, ipady=ipady, sticky="nswe"
 		)
+
+		self.btn_monitor = ttk.Button(frame_buttons, text='MONITOR', style='flat.TButton', command=self.click_monitor).grid(
+			column=2, row=button_row+1, columnspan=2, padx=padx, pady=pady, ipadx=ipadx, ipady=ipady, sticky="nswe"
+		)
+
 
 		self.btn_log = ttk.Button(frame_buttons, text='CONSOLE', style='flat.TButton', command=self.click_console).grid(
 			column=4, row=button_row, padx=padx, pady=pady, ipadx=ipadx, ipady=ipady, sticky="nswe"
 		)
+
 
 		self.btn_quit = ttk.Button(frame_buttons, text='QUIT', style='flat.TButton', command=self.click_quit).grid(
 			column=4, row=button_row+1, padx=padx, pady=pady, ipadx=ipadx, ipady=ipady, sticky="nswe"
@@ -263,7 +283,10 @@ class GUI(object):
 
 	def click_console(self):
 		self.sendtocore('/dumpconfig')
-		self.sendtocore('/openlog', 1)
+		self.sendtocore('/openlog', 0)
+
+	def click_monitor(self):
+		open_monitor()
 
 	def heartbeat(self):
 		self.set_status('ACTIVE')
@@ -282,15 +305,23 @@ class GUI(object):
 		midichannel = self.get_midichannel()
 		digitalmap  = self.get_digitalmapstr()
 		statusbar_separator = '      '
-		statusbar_text = 'MIDI CHANNEL: {midich}{sep}OSC: {dev_ip}//{dev_port}{sep}{digitalmap}'.format(
-			dev_ip=str(get_ip()),  # TODO: get ip only once, it wont change
+
+		statusbar_text = 'MIDI CHANNEL (1-16): {midich}{sep}OSC: {dev_ip}//{dev_port}{sep}{digitalmap}'.format(
+			dev_ip=self.ip,
 			dev_port=self._core_oscport,
 			sep=statusbar_separator,
-			midich=midichannel,
+			midich=midichannel+1,
 			digitalmap=digitalmap
 
 		)
 		self.var_statusbar.set(statusbar_text)
+
+	@property
+	def ip(self):
+		if self._ip is not None:
+			return self._ip
+		self._ip = ip = get_ip()
+		return ip
 
 	def start(self):
 		self.win.mainloop()
