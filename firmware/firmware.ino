@@ -44,10 +44,10 @@ INPUT
 
 /* SETTINGS */
 #define ID 5                 // The ID of this pedal board
-#define DELAY 20             // Delay between each read, in ms
+#define DELAY 10             // Delay between each read, in ms
 #define HEARTBEAT   500      // Period of the Heartbeat, in ms (Default, can be changed via serial)
 #define SMOOTH 50            // (0-100). 0=no smoothing
-#define INTER_READ_DELAY 1   // delay between analog reads to stabilize impedence (see http://forums.adafruit.com/viewtopic.php?f=25&t=11597)
+#define ANALOG_READ_DELAY 1  // delay between analog reads to stabilize impedence (see http://forums.adafruit.com/viewtopic.php?f=25&t=11597)
 
 /* DEBUG Flags, comment out as appropriate */
 #define DEBUG
@@ -200,10 +200,12 @@ void loop() {
 				}
 			case 'G': // GET
 				switch( command[1] ) {
-					case 'H': // GET HEARTBEAT
-						send_reply('H', heartbeat_period);
 					case 'A': // GET MAX ANALOG VALUE
 						send_reply('A', MAX_ANALOG_VALUE);
+					case 'H': // GET HEARTBEAT
+						send_reply('H', heartbeat_period);
+					case 'I': // GET ID
+						send_reply('I', ID);
 				}
 		}
 	}
@@ -223,6 +225,7 @@ void loop() {
 	for(i=0; i < num_dig; i++) {
 		pin = enabled_pins_digital[i];
 		value = digitalRead(pin);
+		delay(1);
 		if( force_digital_read || (value != digital_state[pin]) ) {
 			digital_state[pin] = value;
 			blink_led = true;
@@ -247,8 +250,8 @@ void loop() {
 		pin = enabled_pins_analog[i];
 		lastvalue = analog_state[pin];
 		newvalue = float(analogRead(pin)) / ADC_MAXVALUE;
-		#ifdef INTER_READ_DELAY
-			delay(INTER_READ_DELAY);
+		#ifdef ANALOG_READ_DELAY
+			delay(ANALOG_READ_DELAY);
 		#endif
 		smoothvalue = newvalue * weight_new_value_f + lastvalue * (1 - weight_new_value_f);
 		// quantize to MAX_ANALOG_VALUE
