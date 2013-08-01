@@ -49,7 +49,7 @@ INPUT
 #define SMOOTH 50            // (0-100). 0=no smoothing
 
 /* DEBUG Flags, comment out as appropriate */
-#define DEBUG
+//#define DEBUG
 
 
 /* PROTOCOL */
