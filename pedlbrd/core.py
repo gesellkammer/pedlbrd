@@ -94,8 +94,7 @@ logger = Log()
 # CONSTANTS & SETUP
 #################################
 DEBUG = False
-BAUDRATE = 57600
-CC = 176
+BAUDRATE = 115200
 
 CMD_FORCE_DIGITAL = 'F'
 
@@ -308,7 +307,7 @@ class MIDI_Mapping(object):
 		kind, pin = self.config.label2pin(label)
 		if not mapping:
 			return None
-		byte1 = CC + mapping['channel']
+		byte1 = 176 + mapping['channel']  # 176=CC
 		cc = mapping['cc']
 		_, out1 = mapping['output']
 		func = lambda x: (byte1, cc, x*out1)
@@ -326,7 +325,7 @@ class MIDI_Mapping(object):
 		lastvalues = self._analog_lastvalues
 		if not mapping:
 			return None
-		byte1 = CC + mapping['channel']
+		byte1 = 176 + mapping['channel']  # 176=CC
 		cc = mapping['cc']
 		in0, in1 = mapping['input']
 		out0, out1 = mapping['output']

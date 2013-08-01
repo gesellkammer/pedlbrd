@@ -47,13 +47,13 @@ INPUT
 #define DELAY 20             // Delay between each read, in ms
 #define HEARTBEAT   500      // Period of the Heartbeat, in ms (Default, can be changed via serial)
 #define SMOOTH 50            // (0-100). 0=no smoothing
+#define INTER_READ_DELAY 1   // delay between analog reads to stabilize impedence (see http://forums.adafruit.com/viewtopic.php?f=25&t=11597)
 
 /* DEBUG Flags, comment out as appropriate */
-//#define DEBUG
-
+#define DEBUG
 
 /* PROTOCOL */
-#define BAUDRATE 57600
+#define BAUDRATE 115200
 #define CMD_DIGITAL  68      // D
 #define CMD_ANALOG   65      // A
 #define CMD_HERTBEAT 72      // H 
@@ -69,13 +69,16 @@ INPUT
 #define ADDR_HEARTBEAT 0      // EEPROM Address (2 bytes)
 #define EEPROM_EMPTY 65535    // Uninitialized slot
 #define LEDPIN 13
+#define ADC_MAXVALUE 1024      // the resolution of the ADC (Arduino Leonardo -> 10bit, Arduino Due -> 12bit)
+#define MAX_ANALOG_VALUE 1024  // should be equal or lower than ADC_MAXVALUE
 
 /* ERROR CODES */
 #define ERROR_COMMAND_BUF_OVERFLOW 7
 
 int enabled_pins_digital[] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11}; // pin 12 unused
 int enabled_pins_analog[]  = {0, 1, 2}; // TODO: connect also pin A3
-int analog_state[MAX_ANALOG_PINS];
+float analog_state[MAX_ANALOG_PINS];
+int analog_sentvalue[MAX_ANALOG_PINS];
 int digital_state[MAX_DIGITAL_PINS];
 int num_dig = sizeof(enabled_pins_digital) / sizeof(int);
 int num_an  = sizeof(enabled_pins_analog)  / sizeof(int);
@@ -149,7 +152,8 @@ void setup() {
 	heartbeat_period = eeprom_read_uint(ADDR0+ADDR_HEARTBEAT, HEARTBEAT);
 
 	for( i=0; i < MAX_ANALOG_PINS; i++) {
-		analog_state[i] = 0;
+		analog_state[i] = 0.0;
+		analog_sentvalue[i] = 0;
 	}
 
 	for( i=FIRST_DIGITAL_PIN; i < MAX_DIGITAL_PINS; i++) { 
@@ -177,7 +181,8 @@ void setup() {
 }
 
 void loop() {
-	int value, valuehigh, valuelow, lastvalue, rawvalue;
+	int value, valuehigh, valuelow, last_sentvalue;
+	float lastvalue, newvalue, smoothvalue;
 	int pin, i;
 	boolean blink_led = false;
 	// dispatch commands from serial. serial input is parsed in serialEvent
@@ -197,6 +202,8 @@ void loop() {
 				switch( command[1] ) {
 					case 'H': // GET HEARTBEAT
 						send_reply('H', heartbeat_period);
+					case 'A': // GET MAX ANALOG VALUE
+						send_reply('A', MAX_ANALOG_VALUE);
 				}
 		}
 	}
@@ -239,15 +246,20 @@ void loop() {
 	for(i=0; i < num_an; i++) {
 		pin = enabled_pins_analog[i];
 		lastvalue = analog_state[pin];
-		rawvalue = analogRead(pin);
-		// smooth it
-		value = int(rawvalue * weight_new_value_f + lastvalue * (1.0 - weight_new_value_f));
-		if( value != lastvalue) {
-			analog_state[pin] = value;
-			if( !blink_led && abs(value - lastvalue) > 1) {
+		newvalue = float(analogRead(pin)) / ADC_MAXVALUE;
+		#ifdef INTER_READ_DELAY
+			delay(INTER_READ_DELAY);
+		#endif
+		smoothvalue = newvalue * weight_new_value_f + lastvalue * (1 - weight_new_value_f);
+		// quantize to MAX_ANALOG_VALUE
+		value = int(smoothvalue * MAX_ANALOG_VALUE);
+		last_sentvalue = analog_sentvalue[pin];
+		if( value != last_sentvalue ) {
+			analog_sentvalue[pin] = value;
+			analog_state[pin] = smoothvalue;
+			if( !blink_led && abs(value - last_sentvalue) > 1) {
 				blink_led = true;
 			}
-
 			#ifndef DEBUG
 				valuehigh = value >> 7;
 				valuelow  = value & 0b1111111;
