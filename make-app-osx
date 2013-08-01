@@ -68,6 +68,8 @@ function showoption() {
 	fi
 }
 
+
+
 echo "---------------------------"
 showoption $BUILDAPP      "build app"
 showoption $CREATEPACKAGE "create dmg"

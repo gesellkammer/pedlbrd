@@ -31,7 +31,7 @@ def start(oscport):
 
 class GUI(object):
 	def __init__(self, pedlbrd_oscport):
-		self._connection = 'NOT CONNECTED'
+		self._connection = 'NOTCONNECTED'
 		self._core_oscport = pedlbrd_oscport
 		self.oscserver = self.make_oscserver(pedlbrd_oscport)
 		self.setup_widgets()
@@ -60,6 +60,60 @@ class GUI(object):
 		s.send(pedlbrd_oscport, '/registerui')
 		return s
 
+	def get_ref(self, pollrate=0.05):
+		return Ref(self, pollrate)
+
+	def get_midichannel(self, done=None):
+		"""
+		done: if None, we will block until answer is there.
+			  if a callable, it will be called when the answer is ready.
+		"""
+		if done is not None:
+			self.osc_ask('/ask/midichannel', done)
+			return done
+		else:
+			self.osc_ask_sync('/ask/midichannel', None)[0]
+
+	def get_digitalmapstr(self, done=None, sepindices=(3, 6), sepstr=" "):
+		"""
+		Pedlbrd normalized digital inputs, so that a device at rest outputs 0
+		get a string representation of the invertion mapping of the digital inputs
+
+		done: a callable for async, None for sync
+		sepindices: None or a list of indices where a separator will be included
+		sepstr: the string used as a separator
+
+		UNTOUCHES STATE   
+		0                 -> NORMAL
+		1                 -> INVERTED
+		"""
+		def postproc(s):
+			if s is not None:
+				if sepindices:
+					out = []
+					now = 0
+					for index in sepindices:
+						out.append(s[now:index])
+						now = index
+					out.append(s[now:])
+					s = sepstr.join(out)
+				return s
+		if done is None:
+			reply = self.osc_ask_sync('/ask/digitalmapstr')[0]
+			return postproc(reply)
+		else:
+			self.osc_ask('/ask/digitalmapstr', lambda out: done(postproc(out)))
+			
+	def _get_reply_id(self):
+		self._replyid += 1
+		self._replyid %= 127
+		return self._replyid
+
+	def osc_ask(self, path, callback, *args):
+		ID = self._get_reply_id()
+		self._reply_callbacks[ID] = callback
+		self.oscserver.send(self._core_oscport, path, ID, *args)
+
 	def osc_ask_sync(self, path, done_callback=None, timeout=1):
 		queue = Queue.Queue()
 		def callback(*args):
@@ -73,44 +127,6 @@ class GUI(object):
 			except Queue.Empty:
 				return None
 			return out
-
-	def get_midichannel(self, done_callback=None):
-		"""
-		done_callback: if None, we will block until answer is there
-		               Otherwise we return and when the answer is ready,
-		               the callback is called with it
-		"""
-		return self.osc_ask_sync('/ask/midichannel', done_callback)[0]
-
-	def get_digitalmapstr(self, done_callback=None, normal='-', inverted='X'):
-		"""
-		Pedlbrd normalized digital inputs, so that a device at rest outputs 0
-		get a string representation of the invertion mapping of the digital inputs
-
-		UNTOUCHES STATE   
-		0                 -> NORMAL
-		1                 -> INVERTED
-		"""
-		reply = self.osc_ask_sync('/ask/digitalmapstr', done_callback)
-		if reply is not None:
-			s = reply[0]
-			if normal != '_':
-				s = s.replace('_', normal)
-			if inverted != 'X':
-				s = s.replace('X', inverted)
-			return mapstr[0]
-			
-	def _get_reply_id(self):
-		self._replyid += 1
-		self._replyid %= 127
-		return self._replyid
-
-	def osc_ask(self, path, callback, *args):
-		ID = self._get_reply_id()
-		print "asking with ID", ID
-		self._reply_callbacks[ID] = callback
-		print "sending to port", self._core_oscport, path, args
-		self.oscserver.send(self._core_oscport, path, ID, *args)
 
 	def setup_widgets(self):
 		self.win = Tk()
@@ -272,17 +288,24 @@ class GUI(object):
 			self.win.after(200, self.statusbar_update)
 
 	def statusbar_update(self):
-		midichannel = self.get_midichannel()
-		digitalmap  = self.get_digitalmapstr()
+		midich, digmap = Ref(), Ref()
+		self.get_midichannel(midich)
+		self.get_digitalmapstr(digmap)
 		statusbar_separator = '      '
-		statusbar_text = 'MIDI CHANNEL (1-16): {midich}{sep}OSC: {dev_ip}//{dev_port}{sep}{digitalmap}'.format(
-			dev_ip=self.ip,
-			dev_port=self._core_oscport,
-			sep=statusbar_separator,
-			midich=midichannel+1,
-			digitalmap=digitalmap
-		)
-		self.var_statusbar.set(statusbar_text)
+		def update():
+			if not( midich.ready and digmap.ready ):
+				self.win.after(100, update)
+			else:
+				statusbar_text = 'MIDI CHANNEL (1-16): {midich}{sep}OSC: {dev_ip}//{dev_port}{sep}{digitalmap}'.format(
+					dev_ip=self.ip,
+					dev_port=self._core_oscport,
+					sep=statusbar_separator,
+					midich=midich.value+1,
+					digitalmap=digmap.value
+				)
+				self.var_statusbar.set(statusbar_text)
+		self.win.after(100, update)
+
 
 	@property
 	def ip(self):
@@ -325,6 +348,32 @@ def open_monitor():
 	if sys.platform == 'darwin':
 		os.system("open -a 'MIDI Monitor'")
 
+class UNSET(object): pass
+
+class Ref(object):
+	__slots__ = ["_value", "_root", "_sleeptime"]
+	def __init__(self, root=None, pollrate=0.05):
+		"""
+		root: the root window
+		pollrate: how often to look for changes (in seconds)
+		"""
+		self._value = UNSET
+		self._root  = root
+		self._sleeptime = pollrate * 1000
+	def __call__(self, value):
+		self._value = value
+	@property
+	def ready(self):
+		return self._value is not UNSET
+	@property
+	def value(self):
+		if self._root is None:
+			return self._value
+		else:
+			while True:
+				if self.ready:
+					return self._value
+				self._root.after(self._sleeptime)
 
 ##########################
 #          MAIN

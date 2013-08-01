@@ -635,11 +635,11 @@ class Pedlbrd(object):
 				out.append((label, mapping['inverted']))
 		return out
 
-	def _digitalmapstr(self):
+	def _digitalmapstr(self, chars="-X"):
 		m = self._digitalmap()
 		out = []
 		for label, inverted in m:
-			out.append("X" if inverted else "_")
+			out.append(chars[inverted])
 		return ''.join(out)
 
 	def report_config(self):
