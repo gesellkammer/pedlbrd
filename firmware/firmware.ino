@@ -50,7 +50,7 @@ INPUT
 #define ANALOG_READ_DELAY 1  // delay between analog reads to stabilize impedence (see http://forums.adafruit.com/viewtopic.php?f=25&t=11597)
 
 /* DEBUG Flags, comment out as appropriate */
-#define DEBUG
+//#define DEBUG
 
 /* PROTOCOL */
 #define BAUDRATE 115200
