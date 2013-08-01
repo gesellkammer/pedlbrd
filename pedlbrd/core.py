@@ -4,13 +4,17 @@ from __future__ import division as _division, absolute_import as _absolute_impor
 import os
 import sys
 import glob
-import json
 import time
 import logging
 import logging.handlers
 import shutil
 import inspect
 import fnmatch
+
+try:
+	import ujson as json
+except ImportError:
+	import json
 
 # dependencies
 import timer2
@@ -45,7 +49,7 @@ VALUE = VALUE_HIGH * 128 + VALUE_LOW
 #################################
 envir.prepare()
 try:
-	_scheduler = timer2.Timer(precision=0.3)
+	_scheduler = timer2.Timer(precision=0.5)
 except:
 	raise RuntimeError("XXXXX")
 
@@ -150,7 +154,7 @@ def _is_heartbeat_present(port):
 def _jsondump(obj, filename):
 	json.dump(obj, open(filename, 'w'), indent=4, sort_keys=True)
 
-def _schedule_regularly(period, function, args=(), kws={}):
+def _call_regularly(period, function, args=(), kws={}):
 	return _scheduler.apply_interval(period*1000, function, args, kws)
 
 def _call_later(deltatime, function, args=(), kws={}):
@@ -824,11 +828,11 @@ class Pedlbrd(object):
 		for handler in self._handlers.items():
 			handler.cancel()
 		self._handlers = {}
-		self._handlers['save_env'] = _schedule_regularly(11, self._save_env)
+		self._handlers['save_env'] = _call_regularly(11, self._save_env)
 		time.sleep(0.5)
-		autosave_config_period = self.config.setdefault('autosave_config_period', 20)
+		autosave_config_period = self.config.setdefault('autosave_config_period', 21)
 		if autosave_config_period:
-			self._handlers['save_config'] = _schedule_regularly(autosave_config_period, self._save_config, kws={'autosave':False})
+			self._handlers['save_config'] = _call_regularly(autosave_config_period, self._save_config, kws={'autosave':False})
 
 	# ***********************************************
 	#
@@ -975,6 +979,7 @@ class Pedlbrd(object):
 
 		status must be a string
 		"""
+		
 		if status is not None:
 			assert isinstance(status, basestring)
 			self._status = status

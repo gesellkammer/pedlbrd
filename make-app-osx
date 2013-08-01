@@ -4,25 +4,154 @@ if [ -z $VIRTUAL_ENV ] ; then
 	echo  This script must be called withit a virtualenv
 	echo ------------------------------------------------
 	echo
-	exit 1
+	exit
 fi
+
+function usage() {
+	echo "Makes the Pedlbrd.app"
+	echo "Usage: $(basename $0) [options]"
+	echo "Options:"
+	echo "  --package"
+	echo "      Create a .dmg for distribution" 
+	echo "  --skip"
+	echo "      Skip building the app. Implies --package"
+	echo "  --no-midimonitor"
+	echo "      Do not include MIDI Monitor in the built DMG"
+	echo "  --dirty"
+	echo "      Dont clean up after building .dmg"
+	echo "  --debug-dmg"
+	echo "      Create a .dmg fast, avoiding building and copying the app"
+}
+
+# -------------------------
+#       Parse Options
+# -------------------------
+CREATEPACKAGE=0
+OPENAPPFOLDER=1
+BUILDAPP=1
+MIDIMONITOR=1
+COPYAPP=1
+CLEANUP=1
+
+while test "${1:0:1}" = "-"; do
+	case $1 in
+		--help)
+			usage
+			exit;;
+	    --package)
+			CREATEPACKAGE=1
+		    shift;;
+	    --skip)
+			BUILDAPP=0
+			CREATEPACKAGE=1
+			shift;;
+		--debug-dmg)
+			BUILDAPP=0
+			CREATEPACKAGE=1
+			COPYAPP=0
+			shift;;
+		--dirty)
+			CLEANUP=0
+			shift;;
+		--no-midimonitor)
+			MIDIMONITOR=0
+			shift;;
+	esac
+done
+
+function showoption() {
+	# value, msg
+	if [ $1 == 1 ] ; then
+		echo "[x] $2"
+	else
+		echo "[ ] $2"
+	fi
+}
+
+echo "---------------------------"
+showoption $BUILDAPP      "build app"
+showoption $CREATEPACKAGE "create dmg"
+showoption $CLEANUP       "clean garbage"
+echo "---------------------------"
+echo
+
+# ------------
+#  Build app
+# ------------
 
 BUILDFOLDER="appbuild"
 ENTRY='Pedlbrd'
+ICONSIZE=128
 
-mkdir -p $BUILDFOLDER
+if [ $BUILDAPP == 1 ]; then
+	echo "<< building app >>"
+	mkdir -p $BUILDFOLDER
 
-for folder in pedlbrd assets; do
-	cp -r $folder $BUILDFOLDER/
-done
+	rm -f $BUILDFOLDER/setup.py
 
-cp $ENTRY.py $BUILDFOLDER
+	for folder in pedlbrd assets; do
+		cp -r $folder $BUILDFOLDER/
+	done
 
-cd $BUILDFOLDER
-py2applet --make-setup Pedlbrd.py assets/pedlbrd-icon.icns
-python setup.py py2app
-cd ..
+	cp -f $ENTRY.py $BUILDFOLDER
 
-echo "The app is at $BUILDFOLDER/dist/$ENTRY.app"
+	pushd $BUILDFOLDER
+	py2applet --make-setup Pedlbrd.py assets/pedlbrd-icon.icns
+	python setup.py py2app
+	popd
 
-open "$BUILDFOLDER/dist/$ENTRY.app"
+	echo "The app is at $BUILDFOLDER/dist/$ENTRY.app"
+
+	if [ OPENAPPFOLDER == 1 ]; then
+		open "$BUILDFOLDER/dist/$ENTRY.app"
+	fi
+fi
+
+# -----------------
+#    Create DMG
+# -----------------
+
+if [ $CREATEPACKAGE == 1 ]; then
+	X0=32
+	Y0=32
+	MARGINX=32
+	MARGINY=48
+	PACKAGE=$ENTRY.dmg
+	APPFOLDERX=$(( ($ICONSIZE + $MARGINX)*3 ))
+
+	echo "<< creating .dmg package >>"
+	rm -f $PACKAGE
+	mkdir -p $BUILDFOLDER/package
+	if [ COPYAPP == 1 ] ; then
+		echo "   * copying app"
+		cp -r $BUILDFOLDER/dist/$ENTRY.app $BUILDFOLDER/package
+	fi
+	if [ $MIDIMONITOR == 1 ]; then
+		echo "   * copying MIDI Monitor"
+		cp -r "extra/OSX/MIDI Monitor.app" $BUILDFOLDER/package
+	fi
+	cp extra/OSX/README.txt $BUILDFOLDER/package
+
+	echo "   * creating dmg"
+	extra/OSX/yoursway-create-dmg/create-dmg \
+		--window-size $(( $APPFOLDERX + $ICONSIZE + $X0 )) $(( $ICONSIZE * 3 )) \
+		--volname $ENTRY --background extra/images/background.png --icon-size $ICONSIZE \
+		--icon $ENTRY.app $X0 $Y0 --app-drop-link $APPFOLDERX $Y0 \
+		--icon MIDI\ Monitor.app $(($X0 + $ICONSIZE + $MARGINX)) $Y0 \
+		--icon README.txt $X0 $(( $Y0 + $ICONSIZE + $MARGINY)) \
+		$PACKAGE $BUILDFOLDER/package
+
+	# if package exists, build was successful. Move to the dist folder, else raise error
+	if [ -e $PACKAGE ] ; then
+		rm -f $BUILDFOLDER/dist/$PACKAGE
+		mv $PACKAGE $BUILDFOLDER/dist
+		open $BUILDFOLDER/dist
+		if [ CLEANUP == 1 ] ; then
+			echo "<< removing build files for .dmg package >>"
+			rm -fr $BUIDFOLDER/package
+		fi
+	else
+		echo "### ERROR: .dmg package not created!"
+		exit
+	fi
+fi

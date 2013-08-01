@@ -10,22 +10,9 @@ from Tkinter import Tk, StringVar
 import ttk
 import tkFont
 
-IP = ""
-
-def install_fonts():
-	fonts = glob.glob("assets/fonts/*")
-	installed = False
-	for f in fonts:
-		if sys.platform == 'darwin':
-			dest = os.path.expanduser('~/Library/Fonts')
-			if not os.path.exists(os.path.join(dest, f)):
-				shutil.copy(f, dest)
-				installed = True
-		else:
-			print "platform not supported, fonts will not be installed"
-	if installed:
-		time.sleep(0.5)
-
+# TODO:
+# * menu
+# * very simple monitor and activity signal (we would need to register to data)
 
 #######################
 # API
@@ -34,26 +21,9 @@ def install_fonts():
 def prepare():
 	install_fonts()
 
-def start(oscport=47120):
+def start(oscport):
 	gui = GUI(oscport)
 	gui.start() # block
-
-#######################
-# helpers
-#######################
-
-def defstyle(stylename, *args, **kws):
-	style = ttk.Style()
-	style.configure(stylename, *args, **kws)
-	return style
-
-def get_ip():
-	import socket
-	return socket.gethostbyname(socket.gethostname())
-
-def open_monitor():
-	if sys.platform == 'darwin':
-		os.system("open -a 'MIDI Monitor'")
 
 ######################
 # GUI
@@ -305,14 +275,12 @@ class GUI(object):
 		midichannel = self.get_midichannel()
 		digitalmap  = self.get_digitalmapstr()
 		statusbar_separator = '      '
-
 		statusbar_text = 'MIDI CHANNEL (1-16): {midich}{sep}OSC: {dev_ip}//{dev_port}{sep}{digitalmap}'.format(
 			dev_ip=self.ip,
 			dev_port=self._core_oscport,
 			sep=statusbar_separator,
 			midich=midichannel+1,
 			digitalmap=digitalmap
-
 		)
 		self.var_statusbar.set(statusbar_text)
 
@@ -326,3 +294,43 @@ class GUI(object):
 	def start(self):
 		self.win.mainloop()
 
+#######################
+# helpers
+#######################
+
+def install_fonts():
+	fonts = glob.glob("assets/fonts/*")
+	installed = False
+	for f in fonts:
+		if sys.platform == 'darwin':
+			dest = os.path.expanduser('~/Library/Fonts')
+			if not os.path.exists(os.path.join(dest, f)):
+				shutil.copy(f, dest)
+				installed = True
+		else:
+			print "platform not supported, fonts will not be installed"
+	if installed:
+		time.sleep(0.5)
+
+def defstyle(stylename, *args, **kws):
+	style = ttk.Style()
+	style.configure(stylename, *args, **kws)
+	return style
+
+def get_ip():
+	import socket
+	return socket.gethostbyname(socket.gethostname())
+
+def open_monitor():
+	if sys.platform == 'darwin':
+		os.system("open -a 'MIDI Monitor'")
+
+
+##########################
+#          MAIN
+##########################
+
+if __name__ == '__main__':
+	oscport = sys.argv[1] if len(sys.argv) > 1 else 47120
+	prepare()
+	start(oscport)
