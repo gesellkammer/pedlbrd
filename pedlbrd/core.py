@@ -45,52 +45,6 @@ VALUE = VALUE_HIGH * 128 + VALUE_LOW
 """
 
 #################################
-# Init
-#################################
-envir.prepare()
-try:
-	_scheduler = timer2.Timer(precision=0.5)
-except:
-	raise RuntimeError("XXXXX")
-
-################################
-#
-# Logging
-#
-################################
-class Log:
-	def __init__(self):
-		logname = 'PEDLBRD'
-		self.filename_debug = os.path.join(envir.configpath(), "%s--debug.log" % logname)
-		self.filename_info  = os.path.join(envir.configpath(), "%s.log" % logname)
-		self.debug_log = debug_log = logging.getLogger('pedlbrd-debug')
-		debug_log.setLevel(logging.DEBUG)
-		debug_handler = logging.handlers.RotatingFileHandler(self.filename_debug, maxBytes=80*2000, backupCount=1)
-		debug_handler.setFormatter( logging.Formatter('%(levelname)s: -- %(message)s') )
-		debug_log.addHandler(debug_handler)
-
-		self.info_log = info_log = logging.getLogger('pedlbrd-info')
-		info_log.setLevel(logging.INFO)
-		info_handler = logging.handlers.RotatingFileHandler(self.filename_info, maxBytes=80*500, backupCount=0)
-		info_handler.setFormatter( logging.Formatter('%(message)s') )
-		info_log.addHandler(info_handler)
-		self.loggers = [debug_log, info_log]
-
-	def debug(self, msg):
-		for logger in self.loggers:
-			logger.debug(msg)
-
-	def info(self, msg):
-		for logger in self.loggers:
-			logger.info(msg)
-
-	def error(self, msg):
-		for logger in self.loggers:
-			logger.error(msg)
-
-logger = Log()
-
-#################################
 # CONSTANTS & SETUP
 #################################
 DEBUG = False
@@ -102,66 +56,10 @@ ERRORCODES = {
 	7: 'ERROR_COMMAND_BUF_OVERFLOW'
 }
 
-###############################
-# Helper functions
-###############################
-
-def _parsemsg(msg):
-	param = ord(msg[0])
-	value = ord(msg[1])*128 + ord(msg[2])
-	return param, value
-
-def _aspin(pin):
-	"""
-	pin is either a string like D2, or a tuple ("D", 2)
-
-	returns a tuple (kind, pin)
-	"""
-	if isinstance(pin, basestring):
-		kind = pin[0]
-		pin = int(pin[1:])
-		return kind, pin
-	elif isinstance(pin, tuple):
-		return pin
-	else:
-		raise ValueError("pin should be either a string or a tuple")
-
+#################################
+# Errors
+#################################
 class DeviceNotFound(BaseException): pass
-
-def _is_heartbeat_present(port):
-	"""
-	return True if the given serial port is transmitting a heartbeat
-	"""
-	timeout = 0.333333
-	max_time = 20 # wait at the most this time while attempting to connect
-	s = serial.Serial(port, baudrate=BAUDRATE, timeout=timeout)
-	H = ord("H")
-	time0 = time.time()
-	while True:
-		now = time.time()
-		b = s.read(1)
-		if len(b):
-			b = ord(b)
-			if b & 0b10000000:
-				command = b & 0b01111111
-				if command == H:
-					return True
-		if (now - time0) > max_time:
-			break
-	return False
-
-def _jsondump(obj, filename):
-	json.dump(obj, open(filename, 'w'), indent=4, sort_keys=True)
-
-def _call_regularly(period, function, args=(), kws={}):
-	return _scheduler.apply_interval(period*1000, function, args, kws)
-
-def _call_later(deltatime, function, args=(), kws={}):
-	return _scheduler.apply_after(deltatime*1000, function, args, kws)
-
-def _add_suffix(p, suffix):
-	name, ext = os.path.splitext(p)
-	return "".join((name, suffix, ext))
 
 ################################
 #
@@ -327,13 +225,10 @@ class MIDI_Mapping(object):
 			return None
 		byte1 = 176 + mapping['channel']  # 176=CC
 		cc = mapping['cc']
-		in0, in1 = mapping['input']
-		out0, out1 = mapping['output']
-		in_diff = in1 - in0
-		out_diff = out1 - out0
-		def func(x): 	# a func should return either a msg or None
-			delta = (x - in0) / in_diff
-			value = int(delta * out_diff + out0 + 0.5)
+		def func(x): 	
+			# a func should return either a msg or None
+			# x is 0-1
+			value = int(x * 127 + 0.5)
 			lastvalue = lastvalues[pin]
 			if value == lastvalue:
 				return None
@@ -460,8 +355,11 @@ class Pedlbrd(object):
 		self._update_dispatch_funcs()
 
 	def reset_state(self):
+		MAX_ANALOG = 1023
+		NUMPINS = 127
 		self._midi_mapping = MIDI_Mapping(self.config)
-		self._analog_maxvalues = [0 for i in range(127)]
+		self._analog_maxvalues = [0 for i in range(NUMPINS)]
+		self._analog_minvalues = [MAX_ANALOG for i in range(NUMPINS)]
 		self._input_labels = self.config['input_mapping'].keys()
 
 	def find_device(self, retry_period=0):
@@ -499,6 +397,8 @@ class Pedlbrd(object):
 		async: if True, do everything non-blocking
 		       if None, use the settings in the config ('serialloop_async')
 		"""
+		if async is None:
+			async = self.config.setdefault('serialloop_async', False)
 		self._mainloop(async=async)
 
 	def stop(self):
@@ -642,6 +542,7 @@ class Pedlbrd(object):
 		return ''.join(out)
 
 	def report_config(self):
+		MAX_ANALOG = 1023
 		d = self.config['input_mapping']
 		dl = list(d.iteritems())
 		dl = util.sort_natural(dl, key=lambda row:row[0])
@@ -655,18 +556,23 @@ class Pedlbrd(object):
 				l = "%s    | %s  CH %2d  CC %3d                  (%3d - %3d)" % (label.ljust(3), inverted.ljust(col2),
 					midi['channel'], midi['cc'], out0, out1)
 			else:
-				normalize = "NORM" if mapping['normalized'] else ""
-				if mapping['normalized']:
+				pin_normalized = True
+				# pin_normalized = mapping['normalized']
+				normalize = "NORM" if pin_normalized else ""
+				if pin_normalized:
 					normalize = "NORM"
 					kind, pin = self.label2pin(label)
 					maxvalue = "MAX %d" % self._analog_maxvalues[pin]
+					minvalue = "MIN %d" % self._analog_minvalues[pin]
 				else:
 					normalize = ""
 					maxvalue = ""
-				in0, in1 = midi['input']
-				out0, out1 = midi['output']
-				l = "%s    | %s  CH %2d  CC %3d  (%3d - %4d) -> (%3d - %3d)  %s" % (label.ljust(3), normalize.ljust(col2),
-					midi['channel'], midi['cc'], in0, in1, out0, out1, maxvalue)
+				#in0, in1 = midi['input']
+				in0, in1 = 0, MAX_ANALOG
+				out0, out1 = 0, 127
+				# out0, out1 = midi['output']
+				l = "%s    | %s  CH %2d  CC %3d  (%3d - %4d) -> (%3d - %3d)  %s %s" % (label.ljust(3), normalize.ljust(col2),
+					midi['channel'], midi['cc'], in0, in1, out0, out1, maxvalue, minvalue)
 			lines.append(l)
 		lines.append("")
 		s = "\n".join(lines)
@@ -778,13 +684,11 @@ class Pedlbrd(object):
 		# Analog
 		# --------------
 		if label[0] == "A":
-			normalized = input_mapping['normalized']
 			sendmidi = midiout.send_message
 			kind, pin = self.label2pin(label)
 			if midifunc and self._osc_data_addresses:
 				def combinedfunc(value, pin=pin):
-					if normalized:
-						value = self._analog_normalize(pin, value)
+					value = self._analog_normalize(pin, value)
 					msg = midifunc(value)
 					if msg:
 						sendmidi(msg)
@@ -793,8 +697,7 @@ class Pedlbrd(object):
 				funcs.append(combinedfunc)
 			elif midifunc:
 				def onlymidi(value, pin=pin):
-					if normalized:
-						value = self._analog_normalize(pin, value)
+					value = self._analog_normalize(pin, value)
 					msg = midifunc(value)
 					if msg:
 						sendmidi(msg)
@@ -802,8 +705,7 @@ class Pedlbrd(object):
 				funcs.append(onlymidi)
 			elif self._osc_data_addresses:
 				def onlyosc(value, label=label, pin=pin):
-					if normalized:
-						value = self._analog_normalize(pin, value)
+					value = self._analog_normalize(pin, value)
 					self._send_osc_data('/data', label, value)
 					return value
 				funcs.append(onlyosc)
@@ -811,13 +713,7 @@ class Pedlbrd(object):
 
 	def _update_dispatch_funcs(self):
 		funcs = {self.label2pin(label):self._create_dispatch_func(label) for label in self._input_labels}
-		if self._running and not self._paused:
-			self._paused = True
-			time.sleep(0.01)
-			self._dispatch_funcs_by_pin.update(funcs)
-			self._paused = False
-		else:
-			self._dispatch_funcs_by_pin.update(funcs)
+		self._dispatch_funcs_by_pin.update(funcs)
 
 	def _input_changed(self, label):
 		pin = self.label2pin(label)
@@ -839,10 +735,7 @@ class Pedlbrd(object):
 	#
 	# ***********************************************
 
-	def _mainloop(self, async=None):
-		if async is None:
-			async = self.config.setdefault('serialloop_async', False)
-
+	def _mainloop(self, async):
 		if async:
 			import threading
 			self._thread = th = threading.Thread(target=self.start, kwargs={'async':False})
@@ -851,7 +744,6 @@ class Pedlbrd(object):
 			return
 
 		self._midi_turnon()
-		assert self._midiout is not None
 		self._update_dispatch_funcs()
 		self._update_handlers()
 
@@ -861,27 +753,43 @@ class Pedlbrd(object):
 
 		self._calibrate_digital = False
 		self._running = True
-		self._set_status('running')
+		self._set_status('STARTING')
+
 		_info("\n>>> started listening!")
+
 		dlabels = [self.pin2label("D", i) for i in range(self.config['num_digital_pins'])]
 		alabels = [self.pin2label("A", i) for i in range(self.config['num_analog_pins'])]
+		time_time = time.time
+
+		def _parsemsg(msg):
+			param = ord(msg[0])
+			# value = ord(msg[1])*128 + ord(msg[2])
+			value = (ord(msg[1]) << 7) + ord(msg[2])
+			return param, value
+		
 		while self._running:
 			try:
-				if not self._reconnect():
+				ok = self._reconnect()
+				if not ok: 
 					self.stop()
 					break
 				self._serialconnection = s = serial.Serial(self.serialport, baudrate=BAUDRATE, timeout=self._serial_timeout)
-				last_heartbeat = time.time()
+				last_heartbeat = time_time()
+				s_read = s.read
 				connected = True
 				while self._running:
 					if self._paused:
 						_debug("paused...")
 						while self._paused:
-							time.sleep(0.2)
+							time.sleep(0.1)
 						_debug("resumed...")
-					now = time.time()
-					b = s.read(1)
-					if len(b):    # if we dont time out, we are here
+					now = time_time()
+					b = s_read(1)
+					if not len(b): # We timed out!
+						if (now - last_heartbeat) > 10:
+							connected = False
+							self._notify_disconnected()
+					else:
 						b = ord(b)
 						if b & 0b10000000:  # got a message, read the next bytes according to which message
 							cmd = b & 0b01111111
@@ -889,11 +797,12 @@ class Pedlbrd(object):
 							#   ANALOG
 							# -------------
 							if cmd == 65: # --> A(nalog)
-								msg = s.read(3)
-								param, value = _parsemsg(msg)
-								funclist = self._dispatch_funcs_by_pin.get(('A', param))
+								msg = s_read(3)
+								param = ord(msg[0])
+								value = (ord(msg[1]) << 7) + ord(msg[2])
 								if self._sendraw:
 									self._send_osc_ui('/raw', alabels[param], value)
+								funclist = self._dispatch_funcs_by_pin.get(('A', param))
 								if funclist:
 									for func in funclist:
 										value = func(value)
@@ -901,33 +810,34 @@ class Pedlbrd(object):
 							#    DIGITAL
 							# -------------
 							elif cmd == 68:	# --> D(igital)
-								msg = s.read(3)
-								param, value = _parsemsg(msg) # TODO: inline this function
-								if not self._calibrate_digital:
+								msg = s_read(3)
+								param = ord(msg[0])
+								value = (ord(msg[1]) << 7) + ord(msg[2])
+								if self._calibrate_digital:
+									label = self.pin2label('D', param)
+									config.set("input_mapping/%s/inverted" % label, bool(value))
+								else:
 									if self._sendraw:
 										self._send_osc_ui('/raw', dlabels[param], value)
 									funclist = self._dispatch_funcs_by_pin.get(("D", param))
 									if funclist:
 										for func in funclist:
 											value = func(value)								
-								else:
-									label = self.pin2label('D', param)
-									config.set("input_mapping/%s/inverted" % label, bool(value))	
 							# -------------
 							#   HEARTBEAT
 							# -------------
 							elif cmd == 72: # --> H(eartbeat)
-								ID = ord(s.read(1))
+								ID = ord(s_read(1))
 								last_heartbeat = now
 								if not connected:
 									self._notify_connected()
-								connected = True
+									connected = True
 								self._send_osc_ui('/heartbeat')
 							# -------------
 							#    REPLY
 							# -------------
 							elif cmd == 82: # --> R(eply)
-								param = ord(s.read(1))
+								param = ord(s_read(1))
 								func = self._reply_funcs.get(param)
 								if func:
 									value = ord(s.read(1)) * 128 + ord(s.read(1))
@@ -936,17 +846,13 @@ class Pedlbrd(object):
 								else:
 									# discard reply
 									_debug('no callback for param %d' % param)
-									s.read(2)
-					if (now - last_heartbeat) > 10:
-						connected = False
-						self._notify_disconnected()
-			except KeyboardInterrupt:
-				# poner una opcion en config para decidir si hay que interrumpir por ctrl-c
+									s_read(2)		
+			except KeyboardInterrupt:   # poner una opcion en config para decidir si hay que interrumpir por ctrl-c
 				self.stop()
 				break
-			except OSError:   # arduino disconnected -> s.read throws device not configured
-				pass
-			except serial.SerialException:
+			except OSError, serial.SerialException:
+				# arduino disconnected -> s.read throws device not configured  
+				# don't do anything here, it will reconnect on the next loop
 				pass
 				
 	def _send_command(self, cmd, param=0, data=0):
@@ -1010,21 +916,24 @@ class Pedlbrd(object):
 	def edit_config(self):
 		if self.configfile and os.path.exists(self.configfile):
 			_json_editor(self.configfile)
-			#self.open_config(self.configfile)
-			#self.report_config()
 		else:
 			_error("could not find a config file to edit")
 
 	def _analog_normalize(self, pin, value):
 		"""
 		pin here refers to the underlying arduino pin
+		value returned is 0-1
 		"""
 		maxvalue = self._analog_maxvalues[pin]
+		minvalue = self._analog_minvalues[pin]
 		if value > maxvalue:
 			self._analog_maxvalues[pin] = value
-			value2 = 1023
+			value2 = 1
+		elif value < minvalue:
+			self._analog_minvalues[pin] = value
+			value2 = 0
 		else:
-			value2 = (value / maxvalue) * 1023
+			value2 = (value - minvalue) / (maxvalue - minvalue)
 		return value2
 
 	def _midi_turnon(self):
@@ -1042,12 +951,12 @@ class Pedlbrd(object):
 	def _notify_disconnected(self):
 		msg = "DISCONNECTED!"
 		_info(msg)
-		self._set_status('disconnected')
+		self._set_status('DISCONNECTED')
 
 	def _notify_connected(self):
 		msg = "CONNECTED!"
 		_info(msg)
-		self._set_status('connected')
+		self._set_status('CONNECTED')
 
 	def _reconnect(self):
 		"""
@@ -1096,7 +1005,7 @@ class Pedlbrd(object):
 			self._cache_osc_addresses()
 
 	# -------------------------------------------
-	# External API
+	# ::External API
 	#
 	# methodname: cmd_[cmdname]_[signature]
 	#
@@ -1235,7 +1144,7 @@ class Pedlbrd(object):
 			_error("...")
 
 	# --------------------------------------------------------
-	# OSC server
+	# ::OSC server
 	# --------------------------------------------------------
 
 	def _osc_get_commands(self):
@@ -1335,6 +1244,10 @@ class Pedlbrd(object):
 				out.append(label)
 		return out
 
+###############################
+# ::Helper functions
+###############################
+
 def _get_ip():
 	import socket
 	return socket.gethostbyname(socket.gethostname())
@@ -1349,6 +1262,90 @@ def _sanitize_osc_address(host, port):
 		host = "127.0.0.1"
 	assert isinstance(port, int)
 	return host, port
+
+def _aspin(pin):
+	"""
+	pin is either a string like D2, or a tuple ("D", 2)
+
+	returns a tuple (kind, pin)
+	"""
+	if isinstance(pin, basestring):
+		kind = pin[0]
+		pin = int(pin[1:])
+		return kind, pin
+	elif isinstance(pin, tuple):
+		return pin
+	else:
+		raise ValueError("pin should be either a string or a tuple")
+
+def _is_heartbeat_present(port):
+	"""
+	return True if the given serial port is transmitting a heartbeat
+	"""
+	timeout = 1
+	max_time = 20 # wait at the most this time while attempting to connect
+	s = serial.Serial(port, baudrate=BAUDRATE, timeout=timeout)
+	H = ord("H")
+	time0 = time.time()
+	while True:
+		now = time.time()
+		b = s.read(1)
+		if len(b):
+			b = ord(b)
+			if b & 0b10000000:
+				command = b & 0b01111111
+				if command == H:
+					return True
+		if (now - time0) > max_time:
+			break
+	return False
+
+def _jsondump(obj, filename):
+	json.dump(obj, open(filename, 'w'), indent=4, sort_keys=True)
+
+def _call_regularly(period, function, args=(), kws={}):
+	return _scheduler.apply_interval(period*1000, function, args, kws)
+
+def _call_later(deltatime, function, args=(), kws={}):
+	return _scheduler.apply_after(deltatime*1000, function, args, kws)
+
+def _add_suffix(p, suffix):
+	name, ext = os.path.splitext(p)
+	return "".join((name, suffix, ext))
+
+################################
+#
+# ::Logging
+#
+################################
+class Log:
+	def __init__(self, name='PEDLBRD'):
+		logname = name
+		self.filename_debug = os.path.join(envir.configpath(), "%s--debug.log" % logname)
+		self.filename_info  = os.path.join(envir.configpath(), "%s.log" % logname)
+		self.debug_log = debug_log = logging.getLogger('pedlbrd-debug')
+		debug_log.setLevel(logging.DEBUG)
+		debug_handler = logging.handlers.RotatingFileHandler(self.filename_debug, maxBytes=80*2000, backupCount=1)
+		debug_handler.setFormatter( logging.Formatter('%(levelname)s: -- %(message)s') )
+		debug_log.addHandler(debug_handler)
+		self.info_log = info_log = logging.getLogger('pedlbrd-info')
+		info_log.setLevel(logging.INFO)
+		info_handler = logging.handlers.RotatingFileHandler(self.filename_info, maxBytes=80*500, backupCount=0)
+		info_handler.setFormatter( logging.Formatter('%(message)s') )
+		info_log.addHandler(info_handler)
+		self.loggers = [debug_log, info_log]
+
+	def debug(self, msg):
+		for logger in self.loggers:
+			logger.debug(msg)
+
+	def info(self, msg):
+		for logger in self.loggers:
+			logger.info(msg)
+
+	def error(self, msg):
+		for logger in self.loggers:
+			logger.error(msg)
 
 ##########################################
 # Printing and Logging
@@ -1396,7 +1393,6 @@ def _debug(msg):
 
 def _error(msg):
 	logger.error(msg)
-	print "ERROR:", msg
 
 def _json_editor(jsonfile):
 	if sys.platform == 'darwin':
@@ -1404,11 +1400,22 @@ def _json_editor(jsonfile):
 	else:
 		pass
 
-# -----------------------------------------------------
-#                         END
+
+#################################
+# ::Init
+#################################
+
+envir.prepare()
+
+try:
+	_scheduler = timer2.Timer(precision=0.5)
+except:
+	raise RuntimeError("Could not start scheduler!")
+
+logger = Log()
+
+
 # -----------------------------------------------------
 
 if __name__ == '__main__':
-	config = sys.argv[1] if len(sys.argv) > 1 else None
-	p = Pedlbrd(config)
-
+	raise RuntimeError("this module cannt be executed!")
