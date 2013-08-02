@@ -72,7 +72,7 @@ class GUI(object):
 			self.osc_ask('/ask/midichannel', done)
 			return done
 		else:
-			self.osc_ask_sync('/ask/midichannel', None)[0]
+			self.osc_ask_sync('/ask/midichannel')[0]
 
 	def get_digitalmapstr(self, done=None, sepindices=(3, 6), sepstr=" "):
 		"""
@@ -110,23 +110,27 @@ class GUI(object):
 		return self._replyid
 
 	def osc_ask(self, path, callback, *args):
+		"""
+		Expects a /reply
+
+		>>> def show(s): print s
+		>>> self.osc_ask('/ask/add', show, 3, 4)
+		7
+		"""
 		ID = self._get_reply_id()
 		self._reply_callbacks[ID] = callback
 		self.oscserver.send(self._core_oscport, path, ID, *args)
 
-	def osc_ask_sync(self, path, done_callback=None, timeout=1):
+	def osc_ask_sync(self, path, timeout=1):
 		queue = Queue.Queue()
 		def callback(*args):
-			if done_callback:
-				done_callback(*args)
 			queue.put(args)
-		self.osc_ask(path, callback)
-		if done_callback is None:
-			try:
-				out = queue.get(timeout=timeout)
-			except Queue.Empty:
-				return None
-			return out
+		self.osc_ask(path, callback)	
+		try:
+			out = queue.get(timeout=timeout)
+		except Queue.Empty:
+			return None
+		return out
 
 	def setup_widgets(self):
 		self.win = Tk()
@@ -151,7 +155,7 @@ class GUI(object):
 		fonts = {
 			'button'   : tkFont.Font(family='Abel', size=36),
 			'label'    : tkFont.Font(family='Abel', size=36),
-			'statusbar': tkFont.Font(family='Courier', size=16)
+			'statusbar': tkFont.Font(family='Courier', size=12)
 		}
 
 		btn_style = defstyle('flat.TButton',
@@ -278,34 +282,32 @@ class GUI(object):
 		self.set_status('ACTIVE')
 
 	def set_status(self, status):
-		status = status.upper()
-		oldstatus = self._connection
-		if status == oldstatus:
+		if status == self._connection:
 			return
 		self._connection = status
 		self.var_connection.set( status )	
-		if status == 'ACTIVE':
-			self.win.after(200, self.statusbar_update)
+		self.win.after(200, self.statusbar_update)
 
 	def statusbar_update(self):
 		midich, digmap = Ref(), Ref()
 		self.get_midichannel(midich)
 		self.get_digitalmapstr(digmap)
-		statusbar_separator = '      '
+		# statusbar_separator = '  |  '
+		statusbar_separator = ', '
 		def update():
 			if not( midich.ready and digmap.ready ):
 				self.win.after(100, update)
 			else:
-				statusbar_text = 'MIDI CHANNEL (1-16): {midich}{sep}OSC: {dev_ip}//{dev_port}{sep}{digitalmap}'.format(
+				statusbar_text = 'MIDICHAN: {midich}{sep}OSC IP: {dev_ip}  IN: {dev_port}  OUT: {out_port}{sep}{digitalmap}'.format(
 					dev_ip=self.ip,
 					dev_port=self._core_oscport,
 					sep=statusbar_separator,
 					midich=midich.value+1,
-					digitalmap=digmap.value
+					digitalmap=digmap.value,
+					out_port=self._core_oscport+1
 				)
 				self.var_statusbar.set(statusbar_text)
 		self.win.after(100, update)
-
 
 	@property
 	def ip(self):

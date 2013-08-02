@@ -82,17 +82,13 @@ DEFAULT_CONFIG = {
 		'D10': { 'inverted': False, 
 		         'midi':{ 'channel': 0, 'cc': 10, 'output':[0, 127]}
 		},
-		'A1': { 'normalized': True,
-	     		'midi':{ 'channel': 0, 'cc': 101, 'output':[0, 127], 'input':[0, 1023]}
+		'A1': { 'midi':{ 'channel': 0, 'cc': 101}
 	    },
-	    'A2': { 'normalized': True,
-	     		'midi':{ 'channel': 0, 'cc': 102, 'output':[0, 127], 'input':[0, 1023]}
+	    'A2': { 'midi':{ 'channel': 0, 'cc': 102}
 	    },
-	    'A3': { 'normalized': True,
-	     		'midi':{ 'channel': 0, 'cc': 103, 'output':[0, 127], 'input':[0, 1023]}
+	    'A3': { 'midi':{ 'channel': 0, 'cc': 103}
 	    },
-	    'A4': { 'normalized': True,
-	     		'midi':{ 'channel': 0, 'cc': 104, 'output':[0, 127], 'input':[0, 1023]}
+	    'A4': { 'midi':{ 'channel': 0, 'cc': 104}
 	    }
 	},
 }
