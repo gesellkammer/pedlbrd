@@ -1,0 +1,4 @@
+import oscAPI
+oscAPI.init()
+
+oscAPI.sendMsg('hello', [5, 'fish', '400', 3], 'localhost', 9000)

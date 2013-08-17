@@ -1,0 +1,41 @@
+K 25
+svn:wc:ra_dav:version-url
+V 21
+/svn/!svn/ver/7/trunk
+END
+oscmonitor.py
+K 25
+svn:wc:ra_dav:version-url
+V 35
+/svn/!svn/ver/7/trunk/oscmonitor.py
+END
+oscAPI.py
+K 25
+svn:wc:ra_dav:version-url
+V 31
+/svn/!svn/ver/2/trunk/oscAPI.py
+END
+monitorcore.py
+K 25
+svn:wc:ra_dav:version-url
+V 36
+/svn/!svn/ver/4/trunk/monitorcore.py
+END
+setup.py
+K 25
+svn:wc:ra_dav:version-url
+V 30
+/svn/!svn/ver/7/trunk/setup.py
+END
+sendoscmessage.py
+K 25
+svn:wc:ra_dav:version-url
+V 39
+/svn/!svn/ver/2/trunk/sendoscmessage.py
+END
+OSC.py
+K 25
+svn:wc:ra_dav:version-url
+V 28
+/svn/!svn/ver/2/trunk/OSC.py
+END

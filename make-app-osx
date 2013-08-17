@@ -21,6 +21,8 @@ function usage() {
 	echo "      Dont clean up after building .dmg"
 	echo "  --debug-dmg"
 	echo "      Create a .dmg fast, avoiding building and copying the app"
+	echo "  --fat"
+	echo "      Do not eliminate unused files from app"
 }
 
 # -------------------------
@@ -32,6 +34,7 @@ BUILDAPP=1
 MIDIMONITOR=1
 COPYAPP=1
 CLEANUP=1
+REMOVE_UNUSED_FILES=1
 
 while test "${1:0:1}" = "-"; do
 	case $1 in
@@ -56,6 +59,9 @@ while test "${1:0:1}" = "-"; do
 		--no-midimonitor)
 			MIDIMONITOR=0
 			shift;;
+		--fat)
+			REMOVE_UNUSED_FILES=0
+			shift;;
 	esac
 done
 
@@ -74,6 +80,7 @@ echo "---------------------------"
 showoption $BUILDAPP      "build app"
 showoption $CREATEPACKAGE "create dmg"
 showoption $CLEANUP       "clean garbage"
+showoption $REMOVE_UNUSED_FILES "remove unused files"
 echo "---------------------------"
 echo
 
@@ -102,10 +109,15 @@ if [ $BUILDAPP == 1 ]; then
 	python setup.py py2app
 	popd
 
+	if [ $REMOVE_UNUSED_FILES == 1 ]; then
+		echo "<< removing unused files >>"
+		rm -fr $BUILDFOLDER/dist/$ENTRY.app/Contents/Frameworks/Tcl.framework/Versions/8.5/Resources/English.lproj/ActiveTcl-8.5
+	fi
+	
 	echo "The app is at $BUILDFOLDER/dist/$ENTRY.app"
 
-	if [ OPENAPPFOLDER == 1 ]; then
-		open "$BUILDFOLDER/dist/$ENTRY.app"
+	if [ $OPENAPPFOLDER == 1 ]; then
+		open "$BUILDFOLDER/dist"
 	fi
 fi
 

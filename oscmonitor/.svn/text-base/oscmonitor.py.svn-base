@@ -1,0 +1,109 @@
+#!/usr/bin/python
+import sys
+
+from Tkinter import *
+
+import monitorcore
+
+class App(Frame):
+	def __init__(self, master=None):
+		Frame.__init__(self, master)
+		
+		self.host = 'localhost'
+		self.port = 9000
+		
+		self.oscMonitor = None
+		
+		self.grid(column=0, row=0, columnspan=4, rowspan=2, sticky=('n', 's', 'e','w'))
+		self.columnconfigure(0, weight=1)
+		self.rowconfigure(0, weight=1)
+
+		self.hostLabelControl = Label(master, text='Host')
+		self.hostLabelControl.grid(column=0, row=0, sticky='e')
+
+		self.hostEntryControl = Entry()
+		self.hostEntryControl.grid(column=1, row=0, sticky='w')
+		
+		self.portLabelControl = Label(master, text='Port')
+		self.portLabelControl.grid(column=2, row=0, sticky='e')
+			
+		self.portEntryControl = Entry()
+		self.portEntryControl.grid(column=3, row=0, sticky='w')
+
+		
+		self.logControl = Text()#state='disabled')
+		self.logControl.grid(column=0, row=1, columnspan=4)#, 'anchor':'s'})#{})
+		self.logControl.columnconfigure(0, weight=1)
+		self.logControl.rowconfigure(0, weight=1)
+
+
+		# here is the application variable
+		self.portEntryControlContents = StringVar()
+		self.hostEntryControlContents = StringVar()
+		self.logControlContents = StringVar()
+		
+		# set it to some value
+		self.portEntryControlContents.set(self.port)
+		self.hostEntryControlContents.set(str(self.host))
+		logStartContents = """-----------------------------------------------------------
+Welcome to Peter Raffensperger's OSC Monitor software!
+Enter the host name and port that you would like to monitor
+for Open Sound Control (OSC) messages and press ENTER.
+-----------------------------------------------------------"""
+
+
+		# tell the entry widget to watch this variable
+		self.portEntryControl["textvariable"] = self.portEntryControlContents
+		self.hostEntryControl["textvariable"] = self.hostEntryControlContents
+		self.logControl.insert('1.0', logStartContents)
+
+
+		# and here we get a callback when the user hits return.
+		# we will have the program print out the value of the
+		# application variable when the user hits return
+		self.portEntryControl.bind('<Key-Return>', self.handleEvent)
+		self.hostEntryControl.bind('<Key-Return>', self.handleEvent)
+		
+		self.setupMonitor(self.host, self.port)
+
+	def setupMonitor(self, host, port):
+		if self.oscMonitor is not None:
+			self.oscMonitor.stop()
+		self.oscMonitor = monitorcore.OSCMonitorServer(host, port, self.appendLogMessage)
+		if self.oscMonitor.haveSocket:
+			self.oscMonitor.start()
+			self.appendLogMessage("Listening for OSC message on " + str(host) + ' port ' + str(port))
+		else:
+			self.appendLogMessage("Unable to listen for OSC message on " + str(host) + ' port ' + str(port) + '!')
+
+	def handleEvent(self, event):
+		try:
+			newPort = int(self.portEntryControlContents.get())
+			newHost = self.hostEntryControlContents.get()
+			
+			if newPort != self.port or newHost != self.host:
+				self.port = newPort
+				self.host = newHost
+				self.setupMonitor(self.host, self.port)
+
+		except ValueError:
+			self.appendLogMessage("Port must be an integer!")
+		except None, e:
+			self.appendLogMessage("Failed to monitor host " + str(self.portEntryControlContents.get()) + ' at port ' + str(self.hostEntryControlContents.get()) + ":" + str(e))
+		
+			  
+	def appendLogMessage(self, message):
+		print message
+		self.logControl['state'] = 'normal'
+		self.logControl.insert('end lineend', '\n' + message)
+		self.logControl['state'] = 'disabled'
+		self.logControl.see('end lineend')
+
+root = Tk(screenName='OSC Monitor', baseName='oscmonitor')
+root.title("OSC Monitor")
+root.resizable(False,False)
+app = App(master=root)
+
+app.mainloop()
+#root.destroy()
+raise sys.exit(0)

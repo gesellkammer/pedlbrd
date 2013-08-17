@@ -1,0 +1,74 @@
+import time
+import threading
+import socket
+import sys
+
+import OSC
+
+class OSCMonitorServer(threading.Thread):
+	def __init__(self, ipAddr, port, displayMessage):
+		threading.Thread.__init__(self)
+		self.displayMessage = displayMessage
+		self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+		try:
+			self.socket.bind( (ipAddr, port) )
+			# self.socket.settimeout(1.0) # make sure its not blocking forever...
+			self.socket.settimeout(0.1)
+			self.haveSocket = True
+		except socket.error, e:
+			self.displayMessage('there was an error binding to ip %s and port %i , maybe the port is already taken by another process?\n' % (ipAddr, port) + str(e))
+			self.haveSocket = False
+	
+	def stop(self):
+		self.isRunning = False
+	
+	def run(self):
+		if self.haveSocket:
+			self.isRunning = True
+
+			while self.isRunning:
+				try:
+					while self.isRunning:
+						self.handle( self.socket.recv(1024) ) # self.socket.recvfrom(2**13)
+				except socket.timeout:
+					pass
+
+
+	def handle(self, data, source = None):
+		"""Given OSC data, tries to call the callback with the
+		right address."""
+		message = OSC.decodeOSC(data)
+		try:
+			if type(message[0]) == str:
+				# got a single message
+				address = message[0]
+				
+				self.displayMessage(str(message))
+	
+			elif type(message[0]) == list:
+				# smells like nested messages
+				for msg in message:
+					self.handle(msg, source)
+		except None, e:
+			self.displayMessage("Ooops, exception!" + str(e))
+
+	def unbundler(self, messages):
+		"""Dispatch the messages in a decoded bundle."""
+		# first two elements are #bundle and the time tag, rest are messages.
+		for message in messages[2:]:
+			self.dispatch(message)
+
+if __name__ == '__main__':
+	host = 'localhost'
+	port = 9000
+	def myPrint(message):
+		print message
+	
+	
+	oscServer = OSCMonitorServer(host, port, myPrint)
+	oscServer.start()
+	
+	
+	while 1:
+		time.sleep(1)
+
