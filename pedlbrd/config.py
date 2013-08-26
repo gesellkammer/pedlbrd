@@ -22,6 +22,7 @@ DEFAULT_CONFIG = {
 	'osc_datatype': 'f',			   # use f (32bit) or d (64bit) to send normalized analog values
 	'osc_async': True,
 	'osc_add_kind_to_address': True,   # send {/data/kind pin value}, otherwise {/data kind pin value}
+	'osc_reply_namespace': True,        # the /reply(s) are mirrored as /reply/method values
 	
 	# CONNECTION
 	'firsttime_retry_period': 0.3,     # if possitive, dont give up if no device present at creation time, try to reconnect

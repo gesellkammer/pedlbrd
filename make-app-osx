@@ -74,8 +74,6 @@ function showoption() {
 	fi
 }
 
-
-
 echo "---------------------------"
 showoption $BUILDAPP      "build app"
 showoption $CREATEPACKAGE "create dmg"
@@ -91,6 +89,7 @@ echo
 BUILDFOLDER="appbuild"
 ENTRY='Pedlbrd'
 ICONSIZE=128
+EXCLUDES="Pyside,cython,test,pip,Finder"
 
 if [ $BUILDAPP == 1 ]; then
 	echo "<< building app >>"
@@ -98,20 +97,22 @@ if [ $BUILDAPP == 1 ]; then
 
 	rm -f $BUILDFOLDER/setup.py
 
-	for folder in pedlbrd assets; do
-		cp -r $folder $BUILDFOLDER/
+	for f in pedlbrd pedltalk.py assets oscmonitor.py; do
+		cp -r $f $BUILDFOLDER/
 	done
 
 	cp -f $ENTRY.py $BUILDFOLDER
 
 	pushd $BUILDFOLDER
-	py2applet --make-setup Pedlbrd.py assets/pedlbrd-icon.icns
-	python setup.py py2app
+	py2applet --make-setup Pedlbrd.py pedltalk.py oscmonitor.py extra/pd/pedlctrl.pd assets/pedlbrd-icon.icns
+	python setup.py py2app -e $EXCLUDES 
 	popd
 
 	if [ $REMOVE_UNUSED_FILES == 1 ]; then
 		echo "<< removing unused files >>"
 		rm -fr $BUILDFOLDER/dist/$ENTRY.app/Contents/Frameworks/Tcl.framework/Versions/8.5/Resources/English.lproj/ActiveTcl-8.5
+		rm -fr $BUILDFOLDER/dist/$ENTRY.app/Contents/Resources/lib/python2.7/lib-dynload/Cython
+		rm -fr $BUILDFOLDER/dist/$ENTRY.app/Contents/Resources/lib/python2.7/lib-dynload/PySide
 	fi
 	
 	echo "The app is at $BUILDFOLDER/dist/$ENTRY.app"
@@ -136,7 +137,7 @@ if [ $CREATEPACKAGE == 1 ]; then
 	echo "<< creating .dmg package >>"
 	rm -f $PACKAGE
 	mkdir -p $BUILDFOLDER/package
-	if [ COPYAPP == 1 ] ; then
+	if [ $COPYAPP == 1 ] ; then
 		echo "   * copying app"
 		cp -r $BUILDFOLDER/dist/$ENTRY.app $BUILDFOLDER/package
 	fi

@@ -10,7 +10,6 @@ PORT_UNSET = -1
 def with_gui(coreport):
     "create the core process and a gui on the local machine, on the same process"
     from pedlbrd import gui
-    gui.prepare()
     p = get_core(coreport)
     p.start(async=True)
     try:
@@ -21,20 +20,41 @@ def with_gui(coreport):
 def detached_gui(coreport):
     "create the core process and a gui on the local machine, on different processes"
     import subprocess, time
+    print "getting core"
     p = get_core(coreport)
     print "creating gui process"
-    # guiprocess = subprocess.Popen(args=[sys.executable, 'pedlbrd/gui.py', '--coreaddr', str(coreport)])
-    guiprocess = subprocess.Popen(args=[sys.executable, 'pedlbrd/gui.py'])  
+    from pedlbrd import gui
+    normal_guipath = os.path.splitext(gui.__file__)[0] + '.py'
+    app_guipath = 'gui.py'
+    for guipath in (normal_guipath, app_guipath):
+        if os.path.exists(guipath):
+            if sys.platform == 'darwin':
+                #guiprocess = subprocess.Popen(args=[sys.executable, guipath])  
+                subprocess.Popen(args=[sys.executable, guipath])
+            break
+    else:
+        print "could not find the gui!"
+        return
     print "starting core"
     p.start(async=False)
     print "core exited!"
+
+def detached_gui_reverse(coreport):
+    "create the core process and a gui on the local machine, on different processes"
+    import subprocess, time
+    from pedlbrd import gui
+    core = subprocess.Popen(args=[sys.executable, 'Pedlbrd.py', '--nogui'])
+    gui.start(('localhost', 47120))
    
 def no_gui(coreport):
     "create the core process only"
-
     p = get_core(coreport)
     print "starting headless core process. Press CTRL-C or send /quit to OSC port {coreport}".format(coreport=p._oscserver.port)
     p.start(async=False)
+
+def oscmon():
+    from pedlbrd import oscmonitor
+    oscmonitor.start('tk', ('127.0.0.1', 47120), exclude=['/heartbeat'])
 
 def only_gui():
     # TODO
@@ -61,30 +81,38 @@ def usage():
 
     --port portnumber   core: listen to the given port for OSC messages.
     --nogui             start the service headless
+    --oscmon            only start the osc monitoring
     --help              this help message
     """.format(progname=os.path.split(sys.argv[0])[1])
 
 # //////////////////////////////////////////////////////////////////////
 # MAIN
 
-if util.argv_getflag(sys.argv, '--help'):
-    usage()
-    sys.exit(0)
+if __name__ == '__main__':
+    if util.argv_getflag(sys.argv, '--help'):
+        usage()
+        sys.exit(0)
 
-DETACHED = True
-GUI = True
+    DETACHED = True
+    GUI      = True
 
-if util.argv_getflag(sys.argv, '--nogui'):
-    GUI = False
+    if util.argv_getflag(sys.argv, '--nogui'):
+        GUI = False
+    OSCMON = util.argv_getflag(sys.argv, '--oscmon')
 
-port = util.argv_getoption(sys.argv, '--port', PORT_UNSET, astype=int)
+    port = util.argv_getoption(sys.argv, '--port', PORT_UNSET, astype=int)
 
-if GUI and not DETACHED:
-    print "starting core and gui in single process"
-    with_gui(port)
-elif GUI and DETACHED:
-    print "detached"
-    detached_gui(port)
-else:
-    print "no gui"
-    no_gui(port)
+    if OSCMON:
+        oscmon()
+    elif GUI and not DETACHED:
+        print "starting core and gui in single process"
+        with_gui(port)
+    elif GUI and DETACHED:
+        print "detached"
+        #detached_gui(port)
+        detached_gui_reverse(port)
+    else:
+        print "no gui"
+        no_gui(port)
+        print "\nnogui: exited\n\n"
+

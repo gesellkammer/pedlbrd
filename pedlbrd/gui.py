@@ -18,14 +18,21 @@ import tkFont
 # API
 #######################
 
+_PREPARED = False
+
 def prepare():
+	global _PREPARED
+	if _PREPARED:
+		return
 	install_fonts()
+	_PREPARED = True
 
 def start(coreaddr, guiport=None):
 	"""
 	coreaddr: a tuple (hostname, ort)
 	guiport : a port number or None to create one ad-hoc (a random valid port)
 	"""
+	prepare()
 	gui = GUI(coreaddr, guiport)
 	gui.start() # block
 
@@ -47,8 +54,8 @@ class GUI(object):
 		self._reset_lasttime = time.time()
 		self._reset_mintime = 1
 		self._quitting = False
-		self._monitor_pids = {'midi':None, 'osc':None}
-	
+		self._subprocs = {}
+
 	def make_oscserver(self):
 		def heartbeat(path, args):
 			self.heartbeat()
@@ -108,7 +115,7 @@ class GUI(object):
 		self.osc_ask('/dataaddr/get', out)
 		return out
 
-	def get_digitalmapstr(self, sepindices=(3, 6), sepstr=" "):
+	def get_digitalmapstr(self, sepindices=(3, 6, 9), sepstr=" "):
 		"""
 		Pedlbrd normalized digital inputs, so that a device at rest outputs 0
 		get a string representation of the invertion mapping of the digital inputs
@@ -179,8 +186,8 @@ class GUI(object):
 		}
 
 		fonts = {
-			'button'   : tkFont.Font(family='Abel', size=36),
-			'label'    : tkFont.Font(family='Abel', size=36),
+			'button'   : tkFont.Font(family='Abel', size=32),
+			'label'    : tkFont.Font(family='Abel', size=32),
 			'statusbar': tkFont.Font(family='Abel', size=14)
 		}
 
@@ -330,21 +337,29 @@ class GUI(object):
 		self.sendcore('/dumpconfig')
 		self.sendcore('/openlog', 0)
 		self.sendcore('/openlog', 1)
+		pedltalk_proc = self._subprocs.get('pedltalk')
+		if pedltalk_proc is None or pedltalk_proc.poll() is not None:  # either first call, or subprocess finished
+			pedltalkpath = os.path.abspath("pedltalk.py")
+			p = subprocess.Popen(args=['osascript', 
+				'-e', 'tell app "Terminal"', 
+				'-e', 'do script "{python} {pedltalk}"'.format(python=sys.executable, pedltalk=pedltalkpath),
+				'-e', 'end tell'])
+			self._subprocs['pedltalk'] = p
 
 	def click_monitor(self):
-		self._monitor_pids = self.open_monitor()
+		self.open_monitor()
 
 	def open_monitor(self):
+		print "opening monitr..."
 		if sys.platform == 'darwin':
-			#os.system("open -a 'MIDI Monitor'")
-			subprocess.Popen(args=['open', '-a', 'MIDI Monitor'])
-			oscsubp = self._monitor_pids.get('osc')
-			if oscsubp and oscsubp.poll() is None:
-				# still alive
-				return {'midi':None, 'osc':oscsubp}
-			osc = subprocess.Popen(args=[sys.executable, 'oscmonitor/oscmonitor.py', '--exclude', '/heartbeat']) 
-			return {'midi': None, 'osc': osc}
-
+			midi = subprocess.Popen(args=['open', '-a', 'MIDI Monitor'])
+		oscmonpath = os.path.abspath('oscmonitor.py')
+		oscproc = self._subprocs.get('osc')
+		if os.path.exists(oscmonpath):
+			if oscproc is None or oscproc.poll() is not None:  # either first call, or subprocess finished
+				oscproc = subprocess.Popen(args=[sys.executable, oscmonpath])
+		self._subprocs.update({'midi': midi, 'osc': oscproc})
+		
 	def heartbeat(self):
 		self.set_status('ACTIVE')
 
@@ -429,8 +444,6 @@ def defstyle(stylename, *args, **kws):
 def get_ip():
 	import socket
 	return socket.gethostbyname(socket.gethostname())
-
-
 
 def as_liblo_address(addr):
 	if isinstance(addr, liblo.Address):

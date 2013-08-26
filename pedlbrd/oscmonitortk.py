@@ -1,67 +1,12 @@
 import time
-import liblo
 import sys
 from Tkinter import *
 from ttk import *
 from Queue import Queue
 
-class OSCMonitorServer():
-    def __init__(self, app, coreaddr=None, port=None, exclude=None):
-        self.app = app
-        self._quitting = False
-        self.exclude = exclude
-        self.coreaddr = coreaddr if coreaddr is not None else ('localhost', 47120)
-        try:
-            if port is None:
-                self.server = liblo.ServerThread()
-            else:
-                self.server = liblo.ServerThread(port)
-            self.ok = ok = True
-        except:
-            self.server = None
-            self.ok = ok = False
-            return
-        self.started = False
-        self.server.add_method('/quit', None, self.quit_handler)
-        self.server.add_method('/ping', None, self.ping_handler)
-        self.server.add_method(None, None, self.default_handler)
-        self.port = self.server.port
-        self.server.send(self.coreaddr, '/registerdata')
-
-    def signout(self):
-        self.server.send(self.coreaddr, '/signout')
-
-    def stop(self):
-        if not self.started:
-            return
-        self.started = False
-        self.server.send(self.coreaddr, '/signout')
-        self.server.stop()
-        self.server.free()
-
-    def start(self):
-        self.started = True
-        self.server.start()
-
-    def default_handler(self, path, args, types, src):
-        if path not in self.exclude:
-            argstr = ", ".join(map(str, args))
-            msg = " ".join((path.ljust(16), argstr))
-            self.app.post(msg)
-
-    def quit_handler(self, path, args, types, src):
-        if self._quitting:
-            return
-        self._quitting = True
-        self.app.quit()
-
-    def ping_handler(self, path, args, types, src):
-        ping_id = args[0]
-        self.server.send(src, '/reply', ping_id)
-
-        
 class App(Frame):
-    def __init__(self, coreaddr, port=None, exclude=None):
+    def __init__(self, monitor_constructor, coreaddr, port=None, exclude=None):
+        self.monitor_constructor = monitor_constructor
         self.corehost, self.coreport = coreaddr
         self.port = port
         self.osc_monitor = None
@@ -74,7 +19,6 @@ class App(Frame):
         master.title("OSC Monitor")
         master.resizable(False,False)
         master.geometry('+0+320')
-        #master.tk.call('ttk::setTheme', "clam")
         Frame.__init__(self, master)
         self.root = master
 
@@ -152,13 +96,14 @@ class App(Frame):
         if self.osc_monitor is not None:
             self.osc_monitor.stop()
             self.osc_monitor.free()
-        self.osc_monitor = OSCMonitorServer(app=self, exclude=self.exclude)
+        self.osc_monitor = self.monitor_constructor(app=self, exclude=self.exclude)
         self.port = self.osc_monitor.server.port
         return self.osc_monitor.ok
 
-    def quit(self):
+    def quit(self, external=False):
         self._running = False
-        self.osc_monitor.signout()
+        if not external:
+            self.osc_monitor.signout()
         def quit2():
             self.root.quit()
         self.root.after(120, quit2)
