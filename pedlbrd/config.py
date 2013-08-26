@@ -11,21 +11,32 @@ DEFAULT_CONFIG = {
 	'num_analog_pins' : 4,
 
 	'autocalibrate_digital' : True,
+	'reset_after_reconnect' : False,
 	'open_log_at_startup': False,
 
 	# OSC
 	'osc_port' : 47120,
-	'osc_ui_addresses'   : [ ("127.0.0.1", 47121) ], 
 	'osc_data_addresses' : [ ("127.0.0.1", 47121) ],
+	'osc_ui_addresses'   : [ ("127.0.0.1", 47121) ], 
 	'osc_send_raw_data': True,
-
+	'osc_datatype': 'f',			   # use f (32bit) or d (64bit) to send normalized analog values
+	'osc_async': True,
+	'osc_add_kind_to_address': True,   # send {/data/kind pin value}, otherwise {/data kind pin value}
+	'osc_reply_namespace': True,        # the /reply(s) are mirrored as /reply/method values
+	
 	# CONNECTION
 	'firsttime_retry_period': 0.3,     # if possitive, dont give up if no device present at creation time, try to reconnect
 	'firsttime_accept_fail': True,     # dont fail if there is no connection. Build everything and drops to noconnection state
-	'reconnect_period_seconds': 0.5,     # 0 if no reconnection should be attempted 
+	'reconnect_period_seconds': 0.25,  # 0 if no reconnection should be attempted 
 	'autostart': True,
-	'autosave_config_period': 20,
+	'autosave_config_period': 40,
 	'serialloop_async': True,
+	'osc_forward_heartbeat': True,
+	'sync_bg_checkinterval': 0.2,
+	'idle_threshold' : 2,
+	'serialtimeout_async': 0.5,
+	'serialtimeout_sync' : 0.1,
+	'force_device_info_when_reconnect': False,  # When reconnecting, should we ask again for the device info? (this should not change between connects)
 
 	# MIDI
 	'midi_device_name' : 'PEDLBRD',
@@ -97,7 +108,8 @@ DEFAULT_CONFIG = {
 # Here go default constants
 DEFAULTS = {
 	'envname'    : '__env__',
-	'configname' : '__default__'
+	'configname' : '__default__',
+	'max_analog_value' : 1023
 }
 
 # Here go the settings that are hardware independent
