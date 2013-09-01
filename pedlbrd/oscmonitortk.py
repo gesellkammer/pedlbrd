@@ -3,6 +3,7 @@ import sys
 from Tkinter import *
 from ttk import *
 from Queue import Queue
+from tkFont import Font
 
 class App(Frame):
     def __init__(self, monitor_constructor, coreaddr, port=None, exclude=None):
@@ -12,47 +13,30 @@ class App(Frame):
         self.osc_monitor = None
         self.exclude = exclude if exclude is not None else []
         self.queue = Queue()
+        self.update_period_ms = 100
         ok = self.setup_monitor()
         if not ok:
             raise RuntimeError("could not create osc server")
-        master = Tk(screenName='OSC Monitor', baseName='oscmonitor')
+        #master = Tk(screenName='OSC Monitor', baseName='oscmonitor')
+        master = Tk(screenName='OSC Monitor')
         master.title("OSC Monitor")
         master.resizable(False,False)
-        master.geometry('+0+320')
+        master.geometry('+0+400')
         Frame.__init__(self, master)
         self.root = master
+        self._console_lines = 0
 
-        self.grid(column=0, row=0, columnspan=4, rowspan=2, sticky=('n', 's', 'e','w'))
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
+        #self.grid(column=0, row=0, columnspan=4, rowspan=2, sticky=('n', 's', 'e','w'))
+        #self.columnconfigure(0, weight=1)
+        #self.rowconfigure(0, weight=1)
 
-        self.host_label_ctrl = Label(master, text='Host')
-        self.host_label_ctrl.grid(column=0, row=0, sticky='e')
-
-        self.host_entry_ctrl = Entry()
-        self.host_entry_ctrl.grid(column=1, row=0, sticky='w')
-        
-        self.port_label_ctrl = Label(master, text='Port')
-        self.port_label_ctrl.grid(column=2, row=0, sticky='e')
-        self.port_entry_ctrl = Entry()
-        self.port_entry_ctrl.grid(column=3, row=0, sticky='w')
-
-        self.console = Text()#state='disabled')
+        self.console = Text()
         self.console.grid(column=0, row=1, columnspan=4)#, 'anchor':'s'})#{})
         self.console.columnconfigure(0, weight=1)
         self.console.rowconfigure(0, weight=1)
-
-        self.port_entry_ctrl_contents = StringVar()
-        self.host_entry_ctrl_contents = StringVar()
-        
-        self.port_entry_ctrl_contents.set(self.coreport)
-        self.host_entry_ctrl_contents.set(str(self.corehost))
-
-        self.port_entry_ctrl["textvariable"] = self.port_entry_ctrl_contents
-        self.host_entry_ctrl["textvariable"] = self.host_entry_ctrl_contents
-
-        self.port_entry_ctrl.bind('<Key-Return>', self.handle_entry)
-        self.host_entry_ctrl.bind('<Key-Return>', self.handle_entry)
+        self.console['state'] = DISABLED
+        font = Font(family='Monaco', size=10)
+        self.console.configure(font=font)
 
         self.menu = Menu(tearoff=False)
         self.root.config(menu=self.menu)
@@ -84,10 +68,14 @@ class App(Frame):
                     break
                 msg = q.get_nowait()        
                 insert('end lineend', '\n' + msg)
+                self._console_lines += 1
+                if self._console_lines > 200:
+                    self.console.delete(1.0, 100.0)
+                    self._console_lines -= 100
                 N -= 1
             console.see('end lineend')
             console['state'] = DISABLED
-        self.root.after(100, self.watch_queue)
+        self.root.after(self.update_period_ms, self.watch_queue)
 
     def post(self, msg):
         self.queue.put(msg)
@@ -108,19 +96,19 @@ class App(Frame):
             self.root.quit()
         self.root.after(120, quit2)
 
-    def handle_entry(self, event):
-        try:
-            newport = int(self.port_entry_ctrl_contents.get())
-            newhost = self.host_entry_ctrl_contents.get()
-            if newport != self.port or newhost != self.host:
-                self.port = newport
-                self.host = newhost
-                self.setup_monitor(self.port)
-                self.osc_monitor.start()
-        except ValueError:
-            self.append_message("Port must be an integer!")
-        except None, e:
-            self.append_message("Failed to monitor host " + str(self.port_entry_ctrl_contents.get()) + ' at port ' + str(self.host_entry_ctrl_contents.get()) + ":" + str(e))
+    # def handle_entry(self, event):
+    #     try:
+    #         newport = int(self.port_entry_ctrl_contents.get())
+    #         newhost = self.host_entry_ctrl_contents.get()
+    #         if newport != self.port or newhost != self.host:
+    #             self.port = newport
+    #             self.host = newhost
+    #             self.setup_monitor(self.port)
+    #             self.osc_monitor.start()
+    #     except ValueError:
+    #         self.append_message("Port must be an integer!")
+    #     except None, e:
+    #         self.append_message("Failed to monitor host " + str(self.port_entry_ctrl_contents.get()) + ' at port ' + str(self.host_entry_ctrl_contents.get()) + ":" + str(e))
         
     def append_message(self, message):
         self.console['state'] = NORMAL

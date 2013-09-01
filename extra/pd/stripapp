@@ -1,0 +1,11 @@
+#!/bin/bash
+chmod -R 777 Pdlctrl.app
+for folder in Gem iemmatrix moocow pdlua iemlib iemmatrix ekext rtc mapping creb smlib unauthorized pdp; do
+	rm -fr Pedlctrl.app/Contents/Resources/extra/$folder
+done
+
+rm -fr Pedlctrl.app/Contents/Resources/doc
+
+for lib in libavcodec libvorbis libiconv ; do
+	rm -fr Pedlctrl.app/Contents/lib/$lib*
+done

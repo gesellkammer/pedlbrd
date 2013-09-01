@@ -38,6 +38,8 @@ DEFAULT_CONFIG = {
 	'serialtimeout_sync' : 0.1,
 	'force_device_info_when_reconnect': False,  # When reconnecting, should we ask again for the device info? (this should not change between connects)
 
+	'reset_click_duration': 1,
+
 	# MIDI
 	'midi_device_name' : 'PEDLBRD',
 	

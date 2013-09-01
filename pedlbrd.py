@@ -67,9 +67,9 @@ def get_core(coreport):
     "Create the core driver locally, on the given OSC port"
     if coreport == PORT_UNSET:
         # use default
-        core = Pedlbrd(autostart=False, restore_session=False)
+        core = Pedlbrd(restore_session=False)
     else:
-        core = Pedlbrd(autostart=False, restore_session=False, osc_port=coreport)
+        core = Pedlbrd(restore_session=False, osc_port=coreport)
     return core
 
 # ---------------------------
