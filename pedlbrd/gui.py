@@ -355,10 +355,10 @@ class GUI(object):
 	def click_ctrl(self):
 		if sys.platform == 'darwin':
 			try:
-				if os.path.exists('extra/pd/Pedlctrl.app'):
-					path = 'extra/pd/Pedlctrl.app'
+				if os.path.exists('Pedlctrl.app'):
+					path = 'Pedlctrl.app'
 				else:
-					path = 'extra/pd/pedlctrl.pd'
+					path = 'pedlctrl.pd'
 				path = os.path.abspath(path)
 				subprocess.Popen(['open', path])
 			except:
