@@ -57,7 +57,12 @@ DEBUG = False
 def _parse_errorcodes(s):
     out = {}
     for line in s.splitlines():
-        _, line = line.split("#DEFINE")
+        if not line:
+            continue
+        try:
+            _, line = line.split("#define")
+        except ValueError:
+            raise ValueError("could not parse errorcode: " + line)
         cmd, value = line.split()
         out[cmd] = int(value)
     return out
@@ -193,8 +198,7 @@ class Configuration(dict):
                 if isinstance(v, dict):
                     d = v
                 else:
-                    self.logger.error("set -- key not found: %s" % key)
-                    return
+                    raise KeyError("set -- key not found: [%s]" % str(key))
             d[keys[-1]] = value
             if self._callback_enabled:
                 self.callback(path, value)
@@ -560,7 +564,6 @@ class Pedlbrd(object):
             wasrunning = False
         self._cache_osc_addresses()
         self._sendraw = self.config['osc_send_raw_data']
-        self._update_midichannel()
         if wasrunning:
             self.start()
 
@@ -727,7 +730,7 @@ class Pedlbrd(object):
         returns a list of functions operating on the pin corresponding to
         the given label
         """
-        input_mapping = self.config['input_mapping'][label]
+        input_mapping = self.config['input_mapping'].get(label)
         if not input_mapping:
             self.logger.error("Trying to create a dispatch function for an undefined input (label=%s)" % label)
             return None
@@ -739,33 +742,25 @@ class Pedlbrd(object):
         labelpin = int(label[1:])
         if label[0] == "D":
             inverted = input_mapping['inverted']
-            byte1 = 176 + mapping['channel']
-
+            try:
+                midichan = input_mapping['midi']['channel']
+            except KeyError:
+                raise KeyError("midichannel not present!: "+str(input_mapping))
+            try:
+                cc = input_mapping['midi']['cc']
+            except KeyError:
+                raise KeyError("cc definition not present")
+            _, out1 = input_mapping['midi']['output']
+            byte1 = 176 + midichan
             sendmidi = midiout.send_message
+            kind, pin = self.label2pin(label)
             def callback(value):
                 if inverted:
                     value = 1 - value
-                sendmidi(midifunc(value))
+                sendmidi((byte1, cc, value*out1))
                 self._send_osc_data('/data/D', labelpin, value)
                 return value
             return callback
-
-            def construct_digital_func(self, label):
-        mapping = self.config.midi_mapping_for_label(label)
-        kind, pin = self.config.label2pin(label)
-        if not mapping:
-            return None
-        byte1 = 176 + mapping['channel']  # 176=CC
-        cc = mapping['cc']
-        _, out1 = mapping['output']
-        func = lambda x: (byte1, cc, x*out1)
-        if DEBUG:
-            def debugfunc(x):
-                msg = func(x)
-                print "D%d: %d -> %s" % (pin, x, str(msg))
-                return msg
-            return debugfunc
-        return func
 
         # --------------
         # Analog
@@ -1207,7 +1202,9 @@ class Pedlbrd(object):
         return conn_found
 
     def _get_device_info(self):
-        self.send_to_device(('G', 'I'))
+        def callback(*args):
+            print "got device info", args
+        self.send_to_device(('G', 'I'), callback)
 
     def _configchanged_callback(self, key, value):
         self.logger.debug('changing config %s=%s' % (key, str(value)))
@@ -1216,8 +1213,6 @@ class Pedlbrd(object):
         if paths0 == 'input_mapping':
             label = paths[1]
             self._input_changed(label)
-            if "channel" in key:
-                self._update_midichannel()
         elif paths0 == 'osc_send_raw_data':
             self._sendraw = value
             self.logger.debug('send raw data: %s' % (str(value)))
@@ -1270,7 +1265,10 @@ class Pedlbrd(object):
             return
         for label in labels:
             path = 'input_mapping/%s/midi/channel' % label
-            self.config.set(path, channel)
+            try:
+                self.config.set(path, channel)
+            except KeyError:
+                self.logger.error("could not set midichannel for label: "+label)
 
     def cmd_midicc_set(self, label, cc):
         """{si}set the CC of input"""
@@ -1381,7 +1379,6 @@ class Pedlbrd(object):
         return args
 
     def cmd_devinfo_get(self, src, reply_id):
-        self.logger.debug("devinfo/get {src} {reply_id}".format(src=src, reply_id=reply_id))
         def callback(devinfo, src=src, reply_id=reply_id):
             tags = 'dev_id:max_digital_pins:max_analog_pins:num_digital_pins:num_analog_pins'
             info = [devinfo.get(tag) for tag in tags.split(':')]
@@ -1392,6 +1389,7 @@ class Pedlbrd(object):
                     self.pin2label('A', pin.pin), pin.resolution, pin.smoothing, pin.filtertype, pin.denoise, 
                     self._analog_autorange[pin.pin], self._analog_minvalues[pin.pin], self._analog_maxvalues[pin.pin]
                 )
+            print "end of callback!"
         self.send_to_device(('G', 'I'), callback)
 
     def cmd_analogminval_set(self, analoginput, value):
@@ -1458,7 +1456,7 @@ class Pedlbrd(object):
         analoginput : int --> 1-4 (as in A1-A4)
         value : bool
         """
-         if value not in (True, False):
+        if value not in (True, False):
             self.logger.error("_analog_autorange_set: value should be a bool")
             return
         label = "A%d" % analoginput
@@ -1468,7 +1466,7 @@ class Pedlbrd(object):
             return
         _, pin = pintuplet
         self._analog_autorange[pin] = value
-        self.config.set('/input_mapping/{label}/autorange'.format(label=label, value)
+        self.config.set('/input_mapping/{label}/autorange'.format(label=label), value)
 
     def _analogminval_set(self, analoginput, value):
         pin = analoginput - 1
@@ -1838,16 +1836,16 @@ class Pedlbrd(object):
             if out is None:
                 return
 
-            replypath = '/reply/' + methodname
+            replypath = '/reply'
             if isinstance(out, ForwardReply):
                 def callback(outvalue, addr=addr, replyid=replyid, postfunc=out.postfunc):
                     outvalue = postfunc(outvalue)
-                    self._oscserver.send(addr, replypath, replyid, outvalue)
+                    self._oscserver.send(addr, replypath, methodname, replyid, outvalue)
                 self.send_to_device(out.bytes, callback)
             else:
                 if not isinstance(out, (tuple, list)):
                     out = (out,)
-                self._oscserver.send(addr, replypath, replyid, *out)
+                self._oscserver.send(addr, replypath, methodname, replyid, *out)
                 self._osc_reply_addresses.add(addr)
         return wrapper
         

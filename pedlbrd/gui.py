@@ -85,11 +85,11 @@ class GUI(object):
 		def quit_handler(path, args):
 			self.quit(quitcore=False)
 		def reply_handler(path, args):
-			ID = args[0]
+			method, ID = args[0], args[1]
 			callback = self._reply_callbacks[ID]
 			if callback:
 				try:
-					out = args[1:]
+					out = args[2:]
 					if len(out) == 1:
 						callback(out[0])
 					else:
@@ -128,16 +128,6 @@ class GUI(object):
 	def get_future(self, post=None):
 		return Future(sleepfunc=self.win.after, post=post)
 
-	def get_midichannel(self):
-		"""
-		returns a Future
-
-		get the value with .value
-		"""
-		out = self.get_future()
-		self.osc_ask('/midichannel/get', out)
-		return out
-
 	def get_outport(self):
 		out = self.get_future()
 		self.osc_ask('/addrdata/get', out)
@@ -161,6 +151,7 @@ class GUI(object):
 		1                 -> INVERTED
 		"""
 		def postproc(s):
+			print "postproc!"
 			if s is None: return
 			if sepindices:
 				out, now = [], 0
@@ -414,37 +405,31 @@ class GUI(object):
 
 	def statusbar_update(self):
 		if self.connection == 'ACTIVE':
-			midich  = self.get_midichannel()
 			digmap  = self.get_digitalmapstr()
 			outport = self.get_outport()
 		else:
-			midich = Future()("?")
 			digmap = Future()("??? ??? ???? ")
 			outport = Future()("?")
 		statusbar_separator = '   /   '
 		statusbar_spaces = ' ' * len(statusbar_separator)
-		def update(n=10, midich=midich, digmap=digmap, outport=outport):
+		def update(n=10, digmap=digmap, outport=outport):
 			if n == 0:
 				print "statusbar_update: timed out!"
 				return
-			if not( midich.ready and digmap.ready and outport.ready):
+			if not( digmap.ready and outport.ready):
 				self.win.after(100, update, n-1)
 				return 
 			else:
-				chan = midich.value
-				if isinstance(chan, int):
-					chan += 1
 				first_dataaddr = outport.value[0]
 				if ":" in first_dataaddr:
 					datah, datap = first_dataaddr.split(":")
 					if datah == self.coreaddr.hostname:
 						first_dataaddr = datap
-				statusbar_text = 'MIDICHAN: {midich}{sep}OSC IP: {dev_ip}  IN: {dev_port}  OUT: {out_port}{sep}{digitalmap}{spaces}'.format(
+				statusbar_text = 'OSC IP: {dev_ip}  IN: {dev_port}  OUT: {out_port}{sep}{digitalmap}{spaces}'.format(
 					dev_ip    =self.coreaddr.hostname,
 					dev_port  =self.coreaddr.port,
 					sep       =statusbar_separator,
 					spaces    =statusbar_spaces,
-					midich    =chan,
 					digitalmap=digmap.value,
 					out_port  =first_dataaddr
 				)

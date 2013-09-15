@@ -293,7 +293,12 @@ def openctrlpanel():
 
 if __name__ == '__main__':
     # set the directory where this file is running as the base dir
-    os.chdir( os.path.split(__file__)[0] )
+    current_folder = os.path.abspath(os.path.split(__file__)[0])
+    try:
+        print "cd " + current_folder
+        os.chdir( current_folder )
+    except OSError:
+        print "could not change directory to ", current_folder
     HISTFILE = os.path.join(os.path.expanduser("~"), ".pedlbrd/pedltalk.hist")
     registered_callbacks = {}
     if getflag(sys.argv, '--help', remove=True):
