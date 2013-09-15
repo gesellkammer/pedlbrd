@@ -68,7 +68,7 @@ ERRORCODES = _parse_errorcodes("""
 #define ERROR_INDEX 2
 #define ERROR_COMMAND_NUMBYTES 3
 #define ERROR_VALUE 4
-"""
+""")
 
 # this works as a registry for global state (the global logger, for instance)
 REG = {}
