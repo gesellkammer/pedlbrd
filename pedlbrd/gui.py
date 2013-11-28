@@ -355,10 +355,7 @@ class GUI(object):
 	def click_ctrl(self):
 		if sys.platform == 'darwin':
 			try:
-				if os.path.exists('Pedlctrl.app'):
-					path = 'Pedlctrl.app'
-				else:
-					path = 'pedlctrl.pd'
+				path = 'extra/pd/pedlctrl.pd'
 				path = os.path.abspath(path)
 				subprocess.Popen(['open', path])
 			except:
@@ -368,8 +365,7 @@ class GUI(object):
 
 	def click_console(self):
 		self.sendcore('/dumpconfig')
-		self.sendcore('/openlog', 0)
-		self.sendcore('/openlog', 1)
+		self.sendcore('/openlog', 1)  # open in debug mode
 		pedltalk_proc = self._subprocs.get('pedltalk')
 		if pedltalk_proc is None or pedltalk_proc.poll() is not None:  # either first call, or subprocess finished
 			pedltalkpath = os.path.abspath("pedltalk.py")
@@ -383,9 +379,10 @@ class GUI(object):
 		self.open_monitor()
 
 	def open_monitor(self):
-		print "opening monitr..."
-		if sys.platform == 'darwin':
-			midi = subprocess.Popen(args=['open', '-a', 'MIDI Monitor'])
+		#print "opening monitr..."
+		#if sys.platform == 'darwin':
+		#	midi = subprocess.Popen(args=['open', '-a', 'MIDI Monitor'])
+		midi = None
 		oscmonpath = os.path.abspath('oscmonitor.py')
 		oscproc = self._subprocs.get('osc')
 		if os.path.exists(oscmonpath):

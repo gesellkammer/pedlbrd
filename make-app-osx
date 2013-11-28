@@ -106,7 +106,7 @@ if [ $BUILDAPP == 1 ]; then
 
 	rm -f $BUILDFOLDER/setup.py
 
-	for f in pedlbrd pedltalk.py assets oscmonitor.py; do
+	for f in pedlbrd pedltalk.py assets oscmonitor.py firmware; do
 		cp -r $f $BUILDFOLDER/
 	done
 
@@ -122,8 +122,8 @@ if [ $BUILDAPP == 1 ]; then
 	cp -f $ENTRY.py $BUILDFOLDER
 
 	pushd $BUILDFOLDER
-	py2applet --make-setup Pedlbrd.py pedltalk.py oscmonitor.py extra/pd/pedlctrl.pd assets/pedlbrd-icon.icns
-	python setup.py py2app -e $EXCLUDES 
+	py2applet --make-setup Pedlbrd.py pedltalk.py oscmonitor.py assets/pedlbrd-icon.icns
+	python setup.py py2app -e $EXCLUDES --resources extra,assets,firmware
 	popd
 
 	if [ $REMOVE_UNUSED_FILES == 1 ]; then

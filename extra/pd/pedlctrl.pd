@@ -3,7 +3,7 @@
 #X obj 54 -211 hsl 512 16 0 1 0 0 empty data-A1 empty -2 -8 0 10 -262144
 -1 -1 0 1;
 #X obj 54 -190 hsl 512 16 0 1 0 0 empty data-A2 empty -2 -8 0 10 -262144
--1 -1 1350 1;
+-1 -1 51100 1;
 #X obj 54 -169 hsl 512 16 0 1 0 0 empty data-A3 empty -2 -8 0 10 -262144
 -1 -1 0 1;
 #X obj 54 -148 hsl 512 16 0 1 0 0 empty data-A4 empty -2 -8 0 10 -262144
@@ -51,7 +51,7 @@
 #X obj 687 -209 hradio 10 1 0 4 filterA1_set filterA1 empty 0 -8 0
 10 -262144 -1 -1 1;
 #X obj 687 -187 hradio 10 1 0 4 filterA2_set filterA2 empty 0 -8 0
-10 -262144 -1 -1 3;
+10 -262144 -1 -1 1;
 #X obj 687 -166 hradio 10 1 0 4 filterA3_set filterA3 empty 0 -8 0
 10 -262144 -1 -1 1;
 #X obj 687 -145 hradio 10 1 0 4 filterA4_set filterA4 empty 0 -8 0
@@ -207,7 +207,7 @@
 #X obj 685 -25 tgl 15 0 oscout_enable_set oscout_enable empty 18 8
 0 9 -262144 -1 -1 1 1;
 #X text 683 -41 OSC out;
-#N canvas 1176 399 450 300 _ 1;
+#N canvas 1176 399 450 300 _ 0;
 #N canvas 228 228 1203 655 OSC-out 0;
 #X obj -111 65 sendOSC;
 #X msg -86 33 connect localhost 47120;
@@ -669,5 +669,5 @@
 #X text 616 -4 <--------- Remember to sign out;
 #X text 577 -37 CONNECT;
 #X obj 620 -77 tgl 15 0 auto_update auto_update_set empty 17 7 0 10
--262144 -1 -1 0 1;
+-262144 -1 -1 1 1;
 #X text 618 -93 AUTO;
