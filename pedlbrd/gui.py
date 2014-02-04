@@ -40,6 +40,18 @@ def start(coreaddr, guiport=None):
 # GUI
 ######################
 
+class After(object):
+	def __init__(self, root, ms, func, args=()):
+		self.root = root
+		self.ms = ms
+		self.func = func
+		self.args = args
+	def __call__(self):
+		if self.ms == 0:
+			return self.func(*self.args)
+		else:
+			return self.root.after(self.ms, self.func, *self.args)
+
 class GUI(object):
 	def __init__(self, coreaddr, guiport=None):
 		self.connection = 'CORE NOT PRESENT'
@@ -52,9 +64,17 @@ class GUI(object):
 		self.oscserver = self.make_oscserver()
 		self.oscserver.start()
 		self._reset_lasttime = time.time()
-		self._reset_mintime = 1
+		self._reset_mintime = 0.25
 		self._quitting = False
 		self._subprocs = {}
+		self.queue = Queue.Queue()
+		self.check_work()
+
+	def check_work(self):
+		while not self.queue.empty():
+			job = self.queue.get()
+			job()
+		self.win.after(100, self.check_work)
 
 	def make_oscserver(self):
 		def heartbeat(path, args):
@@ -65,11 +85,11 @@ class GUI(object):
 		def quit_handler(path, args):
 			self.quit(quitcore=False)
 		def reply_handler(path, args):
-			ID = args[0]
+			method, ID = args[0], args[1]
 			callback = self._reply_callbacks[ID]
 			if callback:
 				try:
-					out = args[1:]
+					out = args[2:]
 					if len(out) == 1:
 						callback(out[0])
 					else:
@@ -77,6 +97,12 @@ class GUI(object):
 				except:
 					print "Error in reply callback. ID=%s" % str(ID), sys.exc_info(), args
 					return
+		def calibrate_handler(path, args, types, src, self):
+			self.queue.put(After(self.win, 150, self.statusbar_update))
+
+		def notify_reset_handler(path, args, types, src, self):
+			self.queue.put(After(self.win, 0, self._flash_reset_button))
+			
 		if self.guiport is None:
 			s = liblo.ServerThread()
 			self.guiport = s.port
@@ -94,25 +120,17 @@ class GUI(object):
 		s.add_method('/status', 's', status_handler)
 		s.add_method('/reply', None, reply_handler)
 		s.add_method('/quit', None, quit_handler)
+		s.add_method('/notify/calibrate', None, calibrate_handler, self)
+		s.add_method('/notify/reset', None, notify_reset_handler, self)
 		s.send(self.coreaddr, '/registerui')
 		return s
 
 	def get_future(self, post=None):
 		return Future(sleepfunc=self.win.after, post=post)
 
-	def get_midichannel(self):
-		"""
-		returns a Future
-
-		get the value with .value
-		"""
-		out = self.get_future()
-		self.osc_ask('/midichannel/get', out)
-		return out
-
 	def get_outport(self):
-		out = self.get_future(post=lambda value:value.split("#"))
-		self.osc_ask('/dataaddr/get', out)
+		out = self.get_future()
+		self.osc_ask('/addrdata/get', out)
 		return out
 
 	def get_digitalmapstr(self, sepindices=(3, 6, 9), sepstr=" "):
@@ -133,6 +151,7 @@ class GUI(object):
 		1                 -> INVERTED
 		"""
 		def postproc(s):
+			print "postproc!"
 			if s is None: return
 			if sepindices:
 				out, now = [], 0
@@ -144,6 +163,7 @@ class GUI(object):
 			return s
 		future = self.get_future()
 		self.osc_ask('/digitalmapstr/get', lambda out: future(postproc(out)))
+		print "get_digitalmapstr"
 		return future
 			
 	def _get_reply_id(self):
@@ -317,26 +337,35 @@ class GUI(object):
 		if not running:
 			print "Connection not ACTIVE, cannot RESET (connection={conn})".format(conn=self.connection)
 			return
-		self.btn_reset.configure(state='disabled')
 		now = time.time()
 		if (now - self._reset_lasttime) < self._reset_mintime:
 			return
+		self._flash_reset_button()
 		self._reset_lasttime = now
-		
 		self.sendcore('/resetstate')
 		self.sendcore('/calibrate') 
-		self.win.after(300, self.statusbar_update)
+		self.win.after(100, self.statusbar_update)
+
+	def _flash_reset_button(self):
 		def enable(btn):
 			btn.configure(state='active')
-		self.win.after(int(self._reset_mintime * 1000), enable, self.btn_reset)
+		self.btn_reset.configure(state='disabled')
+		self.win.after(int(self._reset_mintime*1000), enable, self.btn_reset)
 		
 	def click_ctrl(self):
-		print "NOT IMPLEMENTED"
+		if sys.platform == 'darwin':
+			try:
+				path = 'extra/pd/pedlctrl.pd'
+				path = os.path.abspath(path)
+				subprocess.Popen(['open', path])
+			except:
+				print "ERROR: ", sys.exc_info()[1]
+		else:
+			print "NOT IMPLEMENTED"
 
 	def click_console(self):
 		self.sendcore('/dumpconfig')
-		self.sendcore('/openlog', 0)
-		self.sendcore('/openlog', 1)
+		self.sendcore('/openlog', 1)  # open in debug mode
 		pedltalk_proc = self._subprocs.get('pedltalk')
 		if pedltalk_proc is None or pedltalk_proc.poll() is not None:  # either first call, or subprocess finished
 			pedltalkpath = os.path.abspath("pedltalk.py")
@@ -350,9 +379,10 @@ class GUI(object):
 		self.open_monitor()
 
 	def open_monitor(self):
-		print "opening monitr..."
-		if sys.platform == 'darwin':
-			midi = subprocess.Popen(args=['open', '-a', 'MIDI Monitor'])
+		#print "opening monitr..."
+		#if sys.platform == 'darwin':
+		#	midi = subprocess.Popen(args=['open', '-a', 'MIDI Monitor'])
+		midi = None
 		oscmonpath = os.path.abspath('oscmonitor.py')
 		oscproc = self._subprocs.get('osc')
 		if os.path.exists(oscmonpath):
@@ -372,36 +402,31 @@ class GUI(object):
 
 	def statusbar_update(self):
 		if self.connection == 'ACTIVE':
-			midich  = self.get_midichannel()
 			digmap  = self.get_digitalmapstr()
 			outport = self.get_outport()
 		else:
-			midich = Future()("?")
 			digmap = Future()("??? ??? ???? ")
 			outport = Future()("?")
 		statusbar_separator = '   /   '
 		statusbar_spaces = ' ' * len(statusbar_separator)
-		def update(n=10, midich=midich, digmap=digmap, outport=outport):
+		def update(n=10, digmap=digmap, outport=outport):
 			if n == 0:
+				print "statusbar_update: timed out!"
 				return
-			if not( midich.ready and digmap.ready and outport.ready):
+			if not( digmap.ready and outport.ready):
 				self.win.after(100, update, n-1)
 				return 
 			else:
-				chan = midich.value
-				if isinstance(chan, int):
-					chan += 1
 				first_dataaddr = outport.value[0]
 				if ":" in first_dataaddr:
 					datah, datap = first_dataaddr.split(":")
 					if datah == self.coreaddr.hostname:
 						first_dataaddr = datap
-				statusbar_text = 'MIDICHAN: {midich}{sep}OSC IP: {dev_ip}  IN: {dev_port}  OUT: {out_port}{sep}{digitalmap}{spaces}'.format(
+				statusbar_text = 'OSC IP: {dev_ip}  IN: {dev_port}  OUT: {out_port}{sep}{digitalmap}{spaces}'.format(
 					dev_ip    =self.coreaddr.hostname,
 					dev_port  =self.coreaddr.port,
 					sep       =statusbar_separator,
 					spaces    =statusbar_spaces,
-					midich    =chan,
 					digitalmap=digmap.value,
 					out_port  =first_dataaddr
 				)

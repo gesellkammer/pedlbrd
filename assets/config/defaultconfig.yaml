@@ -1,0 +1,93 @@
+autocalibrate_digital: true
+reset_after_reconnect: false
+open_log_at_startup: false
+midi_device_name : PEDLBRD
+
+device:
+    num_digital_pins: 12
+    num_analog_pins : 4
+    baudrate: 250000
+
+labels:
+    D1:  {pin: D2}
+    D2:  {pin: D3}
+    D3:  {pin: D4}
+    D4:  {pin: D5}
+    D5:  {pin: D6}
+    D6:  {pin: D7}
+    D7:  {pin: D8}
+    D8:  {pin: D9}
+    D9:  {pin: D10}
+    D10: {pin: D11}
+
+osc:
+    port: 47120
+    data_addresses:
+        - 127.0.0.1:47121
+    ui_addresses:
+        - 127.0.0.1:47121
+    send_raw_data: true
+    # use f [32bit] or d [64bit] to send normalized analog values 
+    # some applications, like PD, don't support the 'd' tag)
+    datatype: f
+    async: true
+    add_kind_to_address: true   # send {/data/kind pin value} otherwise {/data kind pin value}
+    reply_namespace: true        # the /reply[s] are mirrored as /reply/method values
+
+conn:
+    firsttime_retry_period: 0.3     # if possitive dont give up if no device present at creation time try to reconnect
+    firsttime_accept_fail: true     # dont fail if there is no connection. Build everything and drops to noconnection state
+    reconnect_period_seconds: 0.25  # 0 if no reconnection should be attempted 
+    autostart: true
+    autosave_config_period: 40
+    serialloop_async: true
+    osc_forward_heartbeat: true
+    sync_bg_checkinterval: 0.2
+    idle_threshold: 2
+    serialtimeout_async: 0.5
+    serialtimeout_sync : 0.1
+    force_device_info_when_reconnect: false  # When reconnecting should we ask again for the device info? [this should not change between connects]
+    reset_click_duration: 1
+
+# ----------------------------------------------------- 
+# inputs are the UI side of pins identified by a label
+# -----------------------------------------------------
+inputs:
+    D1:
+        inverted: false 
+        midi: {channel: 0, cc: 1, output: [0, 127]}
+    D2:
+        inverted: false 
+        midi: {channel: 0, cc: 2, output: [0, 127]}
+    D3:
+        inverted: false 
+        midi: {channel: 0, cc: 3, output: [0, 127]}
+    D4:
+        inverted: false 
+        midi: {channel: 0, cc: 4, output: [0, 127]}
+    D5: 
+        inverted: false 
+        midi: {channel: 0, cc: 5, output: [0, 127]}
+    D6:
+        inverted: false 
+        midi: {channel: 0, cc: 6, output: [0, 127]}
+    D7:
+        inverted: false 
+        midi: {channel: 0, cc: 7, output: [0, 127]}
+    D8:
+        inverted: false 
+        midi: {channel: 0, cc: 8, output: [0, 127]}
+    D9: 
+        inverted: false 
+        midi: {channel: 0, cc: 9, output: [0, 127]}
+    D10:
+        inverted: false 
+        midi: {channel: 0, cc: 10, output: [0, 127]}
+    A1:
+        midi: {channel: 0, cc: 101}
+    A2: 
+        midi: {channel: 0, cc: 102}
+    A3:
+        midi: {channel: 0, cc: 103}
+    A4: 
+        midi: {channel: 0, cc: 104}

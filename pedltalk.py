@@ -15,13 +15,13 @@ class Completer(object):
         global print_enabled
         condition = [False]
         def callback(path, args, types, src):
-            api = args[1:]
+            api = args[2:]
             methods = [method.split('#')[0] for method in api]
             self.oscapi = methods
             self.matches = self.commands + self.oscapi
             self.matches.sort()
             condition[0] = True
-        register_callback('/reply/api', callback, oneshot=True)
+        register_callback('/reply', callback, oneshot=True, match=lambda p, A, t, s: A[0]=='api')
         print_enabled = False
         s.send(DEFAULT_ADDR, '/api/get')
         if sync:
@@ -34,6 +34,7 @@ class Completer(object):
             print_enabled = True
         return condition
     def complete(self, text, state):
+        # print "complete: ", text, state
         out = []
         for word in self.matches:
             if word.startswith(text):
@@ -147,12 +148,19 @@ def usage():
     """.format(progname=os.path.split(sys.argv[0])[1])
     sys.exit()
 
-def register_callback(path, callback, oneshot=False):
+def register_callback(path, callback, oneshot=False, match=None):
     if oneshot:
         kind = 'oneshot'
     else:
         kind = 'normal'
-    registered_callbacks[path] = (kind, callback)
+    if match:
+        def func(*args, **kws):
+            matched = match(*args, **kws)
+            if matched:
+                callback(*args, **kws)
+        registered_callbacks[path] = (kind, func)
+    else:
+        registered_callbacks[path] = (kind, callback)
 
 def main_callback(path, args, types, src):
     if path in registered_callbacks:
@@ -249,7 +257,8 @@ def show_api():
     result = []
     def callback(path, args, types, src):
         result.extend(args)
-    register_callback('/reply/api', callback, oneshot=True)
+    #register_callback('/reply/api', callback, oneshot=True)
+    register_callback('/reply', callback, oneshot=True, match=lambda path, args, t, s: args[0] == 'api')
     global print_enabled
     print_enabled = False
     s.send(DEFAULT_ADDR, '/api/get')
@@ -263,7 +272,7 @@ def show_api():
     print msg
     print "-" * len(msg)
 
-    methods = result[1:]
+    methods = result[2:]
     for method in methods:
         path, sig, doc = method.split('#')
         print "{path} {sig} {doc}".format(path=path.ljust(20), sig=sig.ljust(6), doc=doc)
@@ -293,7 +302,12 @@ def openctrlpanel():
 
 if __name__ == '__main__':
     # set the directory where this file is running as the base dir
-    os.chdir( os.path.split(__file__)[0] )
+    current_folder = os.path.abspath(os.path.split(__file__)[0])
+    try:
+        print "cd " + current_folder
+        os.chdir( current_folder )
+    except OSError:
+        print "could not change directory to ", current_folder
     HISTFILE = os.path.join(os.path.expanduser("~"), ".pedlbrd/pedltalk.hist")
     registered_callbacks = {}
     if getflag(sys.argv, '--help', remove=True):
@@ -361,20 +375,23 @@ Enter 'quit' or press CTRL-D to exit
     s.start()
     sources = set()
 
-    readline_available = True
     try:
         import readline
+        readline_available = True
     except ImportError:
         readline_available = False
 
     if readline_available:
-        readline.parse_and_bind("tab: complete")
+        
         atexit.register(readline.write_history_file, HISTFILE)
         if os.path.exists(HISTFILE):
             readline.read_history_file(HISTFILE)
         COMPLETER = Completer()
         readline.set_completer(COMPLETER.complete)
         readline.set_completer_delims(' \t\n`!@#$^&*()=+[{]}|;:\'",<>?')
+        readline.parse_and_bind("tab: complete")
+        readline.parse_and_bind("bind ^I rl_complete")
+        print "readline ready!"
     else:
         print "could not import readline. TAB support is disabled"
         COMPLETER = None

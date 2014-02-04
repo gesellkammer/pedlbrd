@@ -23,6 +23,8 @@ function usage() {
 	echo "      Create a .dmg fast, avoiding building and copying the app"
 	echo "  --fat"
 	echo "      Do not eliminate unused files from app"
+	echo "  --pd-app"
+	echo "      Package the pd control-panel as an app instead of just shipping the patch"
 }
 
 # -------------------------
@@ -35,6 +37,8 @@ MIDIMONITOR=1
 COPYAPP=1
 CLEANUP=1
 REMOVE_UNUSED_FILES=1
+PD=1
+PDAPP=0
 
 while test "${1:0:1}" = "-"; do
 	case $1 in
@@ -59,6 +63,9 @@ while test "${1:0:1}" = "-"; do
 		--no-midimonitor)
 			MIDIMONITOR=0
 			shift;;
+		--pd-app)
+			PDAPP=1
+			shift;;
 		--fat)
 			REMOVE_UNUSED_FILES=0
 			shift;;
@@ -79,6 +86,8 @@ showoption $BUILDAPP      "build app"
 showoption $CREATEPACKAGE "create dmg"
 showoption $CLEANUP       "clean garbage"
 showoption $REMOVE_UNUSED_FILES "remove unused files"
+showoption $PD "include PD control panel"
+showoption $PDAPP "package PD control panel as App"
 echo "---------------------------"
 echo
 
@@ -97,15 +106,24 @@ if [ $BUILDAPP == 1 ]; then
 
 	rm -f $BUILDFOLDER/setup.py
 
-	for f in pedlbrd pedltalk.py assets oscmonitor.py; do
+	for f in pedlbrd pedltalk.py assets oscmonitor.py firmware; do
 		cp -r $f $BUILDFOLDER/
 	done
+
+	if [ $PD == 1 ]; then
+		mkdir -p $BUILDFOLDER/extra
+		mkdir -p $BUILDFOLDER/extra/pd
+		cp extra/pd/*.pd $BUILDFOLDER/extra/pd
+		if [ $PDAPP == 1 ]; then
+			cp -r extra/pd/*.app $BUILDFOLDER/extra/pd
+		fi
+	fi
 
 	cp -f $ENTRY.py $BUILDFOLDER
 
 	pushd $BUILDFOLDER
-	py2applet --make-setup Pedlbrd.py pedltalk.py oscmonitor.py extra/pd/pedlctrl.pd assets/pedlbrd-icon.icns
-	python setup.py py2app -e $EXCLUDES 
+	py2applet --make-setup Pedlbrd.py pedltalk.py oscmonitor.py assets/pedlbrd-icon.icns
+	python setup.py py2app -e $EXCLUDES --resources extra,assets,firmware
 	popd
 
 	if [ $REMOVE_UNUSED_FILES == 1 ]; then

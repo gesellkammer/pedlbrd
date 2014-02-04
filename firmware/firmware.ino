@@ -66,16 +66,19 @@ INPUT
 #define CMD_ERROR    69      // E
 #define CMD_MESSAGE  77      // M
 #define CMD_INFO     73      // I
+#define CMD_BUTTON   66      // B
 
 /* INTERNAL */
 #define MAX_ANALOG_PINS  4   // A4 and A5 are not used, left for future expansion using I2C        
 #define MAX_DIGITAL_PINS 12  // D0, D1 and D13 are not used        
 #define FIRST_DIGITAL_PIN 2  // The first two digital pins are used for Serial
 #define COMMAND_MAXLENGTH 16 // Max length of a serial input command. Sender should wait between messages
+#define BUTTONPIN 12
 #define LEDPIN 13
 #define ADC_MAXVALUE 1023      // the resolution of the ADC (Arduino Leonardo -> 10bit, Arduino Due -> 12bit)
 #define ANALOG_RESOLUTION 1023  // should be equal or lower than ADC_MAXVALUE. This is to account for noise in the ADC
-#define MIN_BLINK 50 // ms
+#define BLINK_PERIOD_MS    40 
+#define BLINK_DURATION_MS 5
 #define HEARTBEAT_MINPERIOD 200
 #define HEARTBEAT_MAXPERIOD 800
 #define ANALOG_ACTIVATE_THRESHOLD 200
@@ -84,7 +87,7 @@ INPUT
 #define MIN_ANALOG_RESOLUTION 255
 #define MAX_ANALOG_RESOLUTION 2047
 #define MIN_DELAY 1
-#define MAX_DELAY 500
+#define MAX_DELAY 100
 #define ALLPINS 127
 #define DENOISE_MIN_THRESHOLD 2
 
@@ -92,14 +95,14 @@ INPUT
 #define EEPROM_EMPTY16 65535    // Uninitialized slot
 #define EEPROM_EMPTY8  255
 #define ADDR0 0               // Base EEPROM Address. 
-#define ADDR_HEARTBEAT 0      // EEPROM Address (2 bytes)
-#define ADDR_SMOOTH    2
-#define ADDR_ANALOGRESOLUTION 4
-#define ADDR_DELAY 6
-#define ADDR_FILTERTYPE 30
-#define ADDR_SMOOTHING  40
-#define ADDR_RESOLUTION_BITS 50
-#define ADDR_DENOISE 60
+#define ADDR_U2_HEARTBEAT 0      // EEPROM Address (2 bytes)
+#define ADDR_U2_DELAY 2
+#define ADDR_U1_BLINK_ENABLED 4
+
+#define ADDR_U1_FILTERTYPE 30
+#define ADDR_U1_SMOOTHING  40
+#define ADDR_U1_RESOLUTIONBITS 50
+#define ADDR_U1_DENOISE 60
 
 /* FILTERS */
 #define FILTER_UNSET -1
@@ -123,8 +126,8 @@ INPUT
 #define CHECK_CMD_LENGTH(n) if(command_length != n) { send_error(ERROR_COMMAND_NUMBYTES); break; }
 #define sign(num) int((num>0)-(num<0))
 
-int enabled_pins_digital[] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11}; // pin 12 unused
-int enabled_pins_analog[]  = {0, 1, 2}; // TODO: connect also pin A3
+const int enabled_pins_digital[] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11}; // pin 12 unused
+const int enabled_pins_analog[]  = {0, 1, 2}; // TODO: connect also pin A3
 
 int 
 	analog_max[MAX_ANALOG_PINS],
@@ -145,10 +148,12 @@ unsigned
 	measured_update_period = 20,
 	heartbeat_period       = HEARTBEAT;
 
-int command_length    = 0,
-	blink_state       = 0,
-	command_pointer = 0,
-	delay_between_loops;
+int command_length      = 0,
+	blink_state         = 0,
+	command_pointer     = 0,
+	button_state        = 0,
+	blink_enabled       = 1,
+	delay_between_loops = 20;
 
 const int
 	num_digital_pins = sizeof(enabled_pins_digital)/sizeof(int),
@@ -200,7 +205,7 @@ byte eeprom_read_byte(unsigned addr, byte setdefault, byte minimum=0, byte maxim
 void set_heartbeat_period(unsigned value) {
 	if(value != heartbeat_period && (value >= HEARTBEAT_MINPERIOD) && (value <= HEARTBEAT_MAXPERIOD)) {
 		heartbeat_period = value;
-		eeprom_write_uint(ADDR_HEARTBEAT, value);
+		eeprom_write_uint(ADDR_U2_HEARTBEAT, value);
 	}
 }
 
@@ -216,7 +221,8 @@ void send_reply(byte reply_id, int value) {
 
 void send_error(int errorcode) {
 	Serial.write(128 + CMD_ERROR);
-	Serial.write(errorcode);
+	Serial.write(errorcode >> 7);
+	Serial.write(errorcode & 0b1111111);
 }
 
 void set_smoothing_percent(int pin, int percent) {
@@ -227,7 +233,7 @@ void set_smoothing_percent(int pin, int percent) {
 	int current_percent = int(analog_smoothing[pin] * 100);
 	if( percent != current_percent) {
 		analog_smoothing[pin] = (float)(percent / 100.0);
-		EEPROM.write(ADDR0 + ADDR_SMOOTHING + pin, percent);	
+		EEPROM.write(ADDR0 + ADDR_U1_SMOOTHING + pin, percent);	
 	}
 }
 
@@ -236,7 +242,7 @@ int read_smoothing_percent(int pin, int defaultvalue) {
 		send_error(ERROR_INDEX);
 		return defaultvalue;
 	}
-	int percent = EEPROM.read(ADDR0 + ADDR_SMOOTHING + pin);
+	int percent = EEPROM.read(ADDR0 + ADDR_U1_SMOOTHING + pin);
 	if( percent == EEPROM_EMPTY8 || percent < 0 || percent > 100 ) {
 		percent = defaultvalue;
 	}
@@ -260,7 +266,7 @@ int read_analog_resolution_for_pin(int pin, int defaultvalue) {
 	}
 	*/
 	int defaultbits = numbits(defaultvalue);
-	int bits = EEPROM.read(ADDR0+ADDR_RESOLUTION_BITS+pin);
+	int bits = EEPROM.read(ADDR0+ADDR_U1_RESOLUTIONBITS+pin);
 	if( bits == EEPROM_EMPTY8 || bits < 6 || bits > 12 ) {
 		bits = defaultbits;
 	}
@@ -272,7 +278,7 @@ int set_analog_resolution_for_pin(int pin, int resolution) {
 	int quantized_resolution = (1 << bits) - 1;
 	if( quantized_resolution != analog_resolution_for_pin[pin] && quantized_resolution >= 255 && quantized_resolution <= 2047 ) {
 		analog_resolution_for_pin[pin] = quantized_resolution;
-		EEPROM.write(ADDR0+ADDR_RESOLUTION_BITS+pin, bits);
+		EEPROM.write(ADDR0+ADDR_U1_RESOLUTIONBITS+pin, bits);
 	}
 }
 
@@ -287,7 +293,7 @@ void set_filtertype(int pin, int filtertype) {
 	}
 	if( filtertypes[pin] != filtertype ) {
 		setup_filter(pin, filtertype);
-		EEPROM.write(ADDR0 + ADDR_FILTERTYPE + pin, filtertype);
+		EEPROM.write(ADDR0 + ADDR_U1_FILTERTYPE + pin, filtertype);
 	}
 }
 
@@ -295,11 +301,30 @@ int read_filtertype(int pin, int defaultvalue) {
 	if( pin < 0 || pin >= MAX_ANALOG_PINS ) {
 		return defaultvalue;
 	}
-	int filtertype = EEPROM.read(ADDR0 + ADDR_FILTERTYPE + pin);
+	int filtertype = EEPROM.read(ADDR0 + ADDR_U1_FILTERTYPE + pin);
 	if( filtertype == EEPROM_EMPTY8 || filtertype < 0 || filtertype > MAX_FILTERTYPES ) {
 		filtertype = defaultvalue;
 	}
 	return filtertype;
+}
+
+void led_signal(int numblinks, int period_ms, int dur_ms) {
+	// limit blink patterns to 10 seconds
+	if( (period_ms < 0) || (period_ms * numblinks > 10000) ) {  
+		send_error(ERROR_VALUE);
+		return;
+	}
+	if( dur_ms >= period_ms ) {
+		send_error(ERROR_VALUE);
+		send_error('D');
+		return;
+	}
+	for(int i=0; i<numblinks; i++) {
+		digitalWrite(LEDPIN, LOW);
+		delay(dur_ms);
+		digitalWrite(LEDPIN, HIGH);
+		delay(period_ms - dur_ms);
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -315,12 +340,15 @@ void setup() {
 		Serial.println("Starting");
 	#endif
 
-	heartbeat_period    = eeprom_read_uint(ADDR_HEARTBEAT, HEARTBEAT, HEARTBEAT_MINPERIOD, HEARTBEAT_MAXPERIOD);
-	delay_between_loops = eeprom_read_uint(ADDR_DELAY, DEFAULT_DELAY, MIN_DELAY, MAX_DELAY);
+	heartbeat_period    = eeprom_read_uint(ADDR_U2_HEARTBEAT, HEARTBEAT, HEARTBEAT_MINPERIOD, HEARTBEAT_MAXPERIOD);
+	delay_between_loops = eeprom_read_uint(ADDR_U2_DELAY, DEFAULT_DELAY, MIN_DELAY, MAX_DELAY);
+	blink_enabled       = eeprom_read_byte(ADDR_U1_BLINK_ENABLED, 1, 0, 1);
 	
 	pinMode(LEDPIN, OUTPUT);
 	digitalWrite(LEDPIN, HIGH);
 	blink_state = 1;
+
+	pinMode(BUTTONPIN, INPUT_PULLUP);
 
 	for( i=0; i < MAX_ANALOG_PINS; i++) {
 		analog_sentvalue[i] = 0;
@@ -329,7 +357,7 @@ void setup() {
 		analog_max[i] = 0;
 		analog_resolution_for_pin[i] = read_analog_resolution_for_pin(i, ANALOG_RESOLUTION);
 		apin_activated[i] = false;
-		apin_denoise[i] = eeprom_read_byte(ADDR_DENOISE	, 1, 0, 1);
+		apin_denoise[i] = eeprom_read_byte(ADDR_U1_DENOISE, 1, 0, 1);
 		last_direction[i] = 0;
 		last_millis[i]    = 0;
 		setup_filter(i, read_filtertype(i, DEFAULT_FILTERTYPE));
@@ -455,7 +483,7 @@ void act_on_command() {
 					value = (command[2] << 7) + command[3];
 					if( delay_between_loops != value && value >= MIN_DELAY && value <= MAX_DELAY ) {
 						delay_between_loops = value;
-						eeprom_write_uint(ADDR_DELAY, delay_between_loops);
+						eeprom_write_uint(ADDR_U2_DELAY, delay_between_loops);
 					}
 				case 'O': // DENOISE BY PREVENTING OSCILLATION
 					CHECK_CMD_LENGTH(4)
@@ -466,8 +494,19 @@ void act_on_command() {
 					}
 					if( value != apin_denoise[pin] ) {
 						apin_denoise[pin] = value;
-						EEPROM.write(ADDR0+ADDR_DENOISE+pin, value);
+						EEPROM.write(ADDR0+ADDR_U1_DENOISE+pin, value);
 					} 
+					break;
+				case 'B':  // BLINKING enable/disable
+					CHECK_CMD_LENGTH(3);
+					value = command[2];
+					if( value < 0 && value > 1 ) {
+						send_error(ERROR_VALUE);
+					}
+					if( value != blink_enabled ) {
+						blink_enabled = value;
+						EEPROM.write(ADDR0+ADDR_U1_BLINK_ENABLED, value);
+					}
 					break;
 			}
 			break;
@@ -543,12 +582,22 @@ void act_on_command() {
 					replyid = command[3];
 					send_reply(replyid, apin_denoise[pin]);
 					break;
+				case 'B': // BLINK STATUS
+					CHECK_CMD_LENGTH(3)
+					replyid = command[2];
+					send_reply(replyid, blink_enabled);
+					break;
 
 			}
 			break;	
 		case 'R': // Reset
 			CHECK_CMD_LENGTH(1)
 			reset();
+			break;
+		case 'L': // LED signal
+			CHECK_CMD_LENGTH(7)
+			// numblinks:uint, blinkperiod:uint, blinkdur:uint
+			led_signal((command[1]<<7)+command[2], (command[3]<<7)+command[4], (command[5]<<7)+command[6]);
 			break;
 	}
 }
@@ -568,12 +617,16 @@ void loop() {
 	measured_update_period = (measured_update_period >> 1) + ((newnow - now) >> 1);
 	now = newnow;
 	
-	if( blink_led && (blink_state == 1) && ((now - last_blink) > MIN_BLINK) ) {
-		digitalWrite(LEDPIN, LOW);
+	if( blink_led && (blink_state == 1) && (now - last_blink) > BLINK_PERIOD_MS) {
+		last_blink = now;
 		blink_state = 0;
-		blink_led   = false;	
-		last_blink  = now;
-	};
+		digitalWrite(LEDPIN, LOW);
+		blink_led = false;
+	} else if ( (blink_state == 0) && (now - last_blink) > BLINK_DURATION_MS ) {
+		digitalWrite(LEDPIN, HIGH);
+		blink_state = 1;
+		last_blink = now;
+	}
 
 	// dispatch commands from serial. serial input is parsed in serialEvent
 	if( command_complete ) {
@@ -588,6 +641,24 @@ void loop() {
 	}
 	#endif
 
+	////////////////////////
+	// BUTTON
+
+	// we use the pullup, so 0 is pressed. To stay coherent with the other digital inputs,
+	// we invert the value, so 1 is pressed and 0 is normal
+	value = 1 - digitalRead(BUTTONPIN);  
+	if( value != button_state ) {
+		button_state = value;
+		#ifdef NORMAL
+			Serial.write(128 + CMD_BUTTON);
+			Serial.write(0);
+			Serial.write(value);
+		#else
+			Serial.print("B1: ");
+			Serial.println(value);
+		#endif
+	}
+
 	///////////////////////
 	// DIGITAL
 	for(i=0; i < num_digital_pins; i++) {
@@ -601,7 +672,9 @@ void loop() {
 		#endif
 		if( force_digital_read || (value != digital_state[pin]) ) {
 			digital_state[pin] = value;
-			blink_led = true;
+			if( blink_enabled ) {
+				blink_led = true;	
+			}
 			#ifdef NORMAL
 				Serial.write(128 + CMD_DIGITAL);
 				Serial.write(pin);
@@ -694,7 +767,9 @@ void loop() {
 		}
 
 		analog_sentvalue[pin] = value;
-		blink_led = true;
+		if( blink_enabled ) {
+			blink_led = true;	
+		}
 
 		#ifdef NORMAL
 			Serial.write(128 + CMD_ANALOG);
@@ -709,10 +784,10 @@ void loop() {
 		#endif
 	};
 
-	if( blink_state == 0 ) {
-		digitalWrite(LEDPIN, HIGH);
-		blink_state = 1;
-	}
+	// if( blink_state == 0 ) {
+	// 	digitalWrite(LEDPIN, HIGH);
+	// 	blink_state = 1;
+	// }
 
 	delay(delay_between_loops);	
 }
