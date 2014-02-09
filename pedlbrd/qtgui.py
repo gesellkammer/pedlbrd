@@ -1,8 +1,7 @@
 from PySide.QtCore import *
 from  PySide.QtGui import *
-import sys
+import sys, os, time, subprocess
 import liblo
-import time
 
 global qt_app
 
@@ -103,7 +102,9 @@ class Slider(QWidget):
         self._coloroff = QColor(240, 240, 240)
         self._coloron  = QColor(80, 10, 255)
     def minimumSizeHint(self):
-        return (10, 10)
+        return QSize(10, 10)
+    def sizeHint(self):
+        return QSize(10, 100)
     def paintEvent(self, event):
         p = QPainter()
         p.begin(self)
@@ -120,9 +121,9 @@ class Slider(QWidget):
         self._value = value
         self.repaint()
 
-class CheckBox(QWidget):
+class BigCheckBox(QWidget):
     def __init__(self, size, parent=None):
-        super(CheckBox, self).__init__(parent)
+        super(BigCheckBox, self).__init__(parent)
         self._size = size
         self.value = 0
     def minimumSizeHint(self):
@@ -153,16 +154,24 @@ class CheckBox(QWidget):
         p.drawRect(cx-r, cy-r, self._size, self._size)
         p.end()
 
+#######################################################
+#         MAIN             
+#######################################################
+
 class Pedlbrd(QWidget):
     def __init__(self, pedlbrd_address):
         # Initialize the object as a QWidget and
         # set its title and minimum width
         super(Pedlbrd, self).__init__()
-        self.setup_widgets()
+        self._pedlbrd_address = pedlbrd_address
+        self._midithrough_index = None
+        self._subprocs = {}
+        self.conn_status = None
         self.osc_thread = OSCThread(self, pedlbrd_address=pedlbrd_address)
         self.osc_thread.start()
-        self.conn_status = None
         self._last_heartbeat = time.time()
+        self.setup_widgets()
+        self.call_later(1000, self.post_init)
 
     def on_heartbeat(self):
         new_status = "ACTIVE"
@@ -189,19 +198,30 @@ class Pedlbrd(QWidget):
         self.layout = QVBoxLayout()
  
         # Create the form layout that manages the labeled controls
-        form_layout = QFormLayout()
+        self.widget_info = form_layout = QFormLayout()
         form_layout.setFormAlignment(Qt.AlignTop | Qt.AlignLeft)
 
         self.status = QLabel('...', self)
         form_layout.addRow('STATUS', self.status)
- 
+
+        osc_in = "%s:%d" % self._pedlbrd_address
+        form_layout.addRow('OSC IN', QLabel(osc_in))
+
+        self._oscout = QLabel(str(47121))
+        form_layout.addRow('OSC OUT', self._oscout)
+
         midichannels = [str(i) for i in range(1, 17)]
         self.midichannel_combo = QComboBox(self)
         self.midichannel_combo.addItems(midichannels)
         self.midichannel_combo.activated[int].connect(self.action_midichannel)
- 
+
         # Add it to the form layout with a label
         form_layout.addRow('&MIDI Channel', self.midichannel_combo)
+
+        self.midiports_combo = QComboBox(self)
+        self.midiports_combo.addItems(["- - - - - - - -"])
+        form_layout.addRow('&MIDI Through', self.midiports_combo)
+        self.midiports_combo.activated[int].connect(self.action_midithrough)
          
         # Add the form layout to the main VBox layout
         self.layout.addLayout(form_layout)
@@ -217,22 +237,24 @@ class Pedlbrd(QWidget):
         reset_button.clicked.connect(self.action_reset)
         console_button = QPushButton('Console', self)
         console_button.clicked.connect(self.action_console)
+        #hack_button = QPushButton('Hack', self)
+        #hack_button.clicked.connect(self.action_hack)
         
         self.quit_button = QPushButton('Quit', self)
         self.quit_button.clicked.connect(QCoreApplication.instance().quit)
         self.quit_button.clicked.connect(self.action_quit)
 
         # Add it to the button box
-        button_box.addWidget(reset_button)
-        button_box.addWidget(console_button)
-
+        buttons = [reset_button, console_button]
+        for button in buttons:
+            button_box.addWidget(button)
         button_box.addStretch(1)
         button_box.addWidget(self.quit_button)
         
         # Grid
         grid0 = QGridLayout()
         grid_size = 50
-        chks = [CheckBox(grid_size, self) for i in range(10)]
+        chks = [BigCheckBox(grid_size, self) for i in range(10)]
         grid = QGridLayout()
         self.digpins = chks
         grid.setSpacing(2)
@@ -264,10 +286,33 @@ class Pedlbrd(QWidget):
         self.layout.addLayout(grid0)
         self.setLayout(self.layout)
 
+        # midiports
+        """
+        midiports_layout = QVBoxLayout()
+        midiports_checkboxes = [QCheckBox("", self) for i in range(5)]
+        for chk in midiports_checkboxes:
+            chk.setChecked(False)
+            midiports_layout.addWidget(chk)
+        self.midiports_checkboxes = midiports_checkboxes
+        self.midiports_layout = midiports_layout
+        self.layout.addLayout(self.midiports_layout)
+        """
+
         # Add the button box to the bottom of the main VBox layout
         self.layout.addLayout(button_box)
 
-        self.setFixedSize(self.sizeHint())
+    def post_init(self):
+        # init midiports list
+        print "post_init"
+        #def later(self):
+        #    print "midiports set to", self._midiports
+        #    for i, portname in enumerate(self._midiports[:5]):
+        #        self.midiports_checkboxes[i].setText(portname)
+        def later(self):
+            self.midiports_combo.addItems(self._midiports)
+            self.midiports_combo.setMinimumWidth(self.midiports_combo.minimumSizeHint().width())
+            self.setFixedSize(self.sizeHint())
+        self.get_midiports(later)
 
     def set_digitalpin(self, pin, value):
         self.digpins[pin-1].setValue(value)
@@ -281,8 +326,47 @@ class Pedlbrd(QWidget):
         for digpin in self.digpins:
             digpin.setValue(0)
 
+    def action_hack(self):
+        pedltalk_proc = self._subprocs.get('pedltalk')
+        if pedltalk_proc is None or pedltalk_proc.poll() is not None:  # either first call, or subprocess finished
+            pedltalkpath = os.path.abspath("pedltalk.py")
+            if not os.path.exists(pedltalkpath):
+                print "pedltalk.py not found"
+                return
+            if sys.platform == 'darwin':
+                p = subprocess.Popen(args=['osascript', 
+                    '-e', 'tell app "Terminal"', 
+                    '-e', 'do script "{python} {pedltalk}"'.format(python=sys.executable, pedltalk=pedltalkpath),
+                    '-e', 'end tell'])
+                self._subprocs['pedltalk'] = p
+            else:
+                print "platform not supported"
+
+    def get_midiports(self, callback=None):
+        def callback0(*ports):
+            self._midiports = ports
+            if callback is not None:
+                callback(self)
+        self.osc_thread.get('midioutports', callback0)
+
     def action_console(self):
         self.osc_thread.sendosc('/openlog', 0)
+        self.action_hack()
+
+    def action_midithrough(self, index):
+        if index == 0 and self._midithrough_index is not None:
+            self.osc_thread.sendosc('/midithrough/set', self._midithrough_index, 0)
+            self._midithrough_index = None
+        elif self._midithrough_index is not None:
+            self.osc_thread.sendosc('/midithrough/set', self._midithrough_index, 0)
+            self._midithrough_index = index - 1
+            self.call_later(100, lambda:self.osc_thread.sendosc('/midithrough/set', index-1, 1))
+        else:
+            self._midithrough_index = index - 1
+            self.osc_thread.sendosc('/midithrough/set', index-1, 1)
+
+    def call_later(self, ms, action):
+        QTimer.singleShot(ms, action)
 
     def action_midichannel(self, index):
         self.osc_thread.sendosc('/midichannel/set', '*', index)

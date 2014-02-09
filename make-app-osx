@@ -36,7 +36,7 @@ BUILDAPP=1
 MIDIMONITOR=1
 COPYAPP=1
 CLEANUP=1
-REMOVE_UNUSED_FILES=1
+REMOVE_UNUSED_FILES=0
 PD=1
 PDAPP=0
 
@@ -98,7 +98,7 @@ echo
 BUILDFOLDER="appbuild"
 ENTRY='Pedlbrd'
 ICONSIZE=128
-EXCLUDES="Pyside,cython,test,pip,Finder"
+EXCLUDES="cython,test,pip,Finder"
 
 if [ $BUILDAPP == 1 ]; then
 	echo "<< building app >>"

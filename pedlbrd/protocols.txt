@@ -1,0 +1,219 @@
+Communication core -> gui
+
+/heartbeat
+    
+    The heartbeat of the core
+
+/status
+
+    The connection status
+
+/reply
+
+    Each function call (/*/get) from gui gets a reply at
+    /reply.
+    request --> /*/get ID *args
+    reply   --> /reply ID *args
+
+/quit
+    
+    gui should quit
+
+/notify/calibrate
+    
+    core has been calibrated, gui gets a "bang"
+
+/notify/reset
+    
+    core has been reset, gui gets a "bang"
+
+# Communication to core
+
+## GET protocol. 
+
+all paths ending with /get use the GET protocol
+
+    /path/get ID [arg1 arg2 ...]
+    ID: an int   --> will send {/reply path ID value1 ...} to source_address
+        a string of type addr/ID --> will send {/reply ID value1 ...} to addr
+            where addr is "port" or "host:port"
+            Default host is localhost
+
+## API
+
+/digitalinvert label:str invertstatus:int (0-1)
+
+    invert the polarity of the given digital input
+    label: D1-D10, or a wildcard (D*)
+
+/smoothing/get reply_id analog_index
+
+    reply_id:int     -> the ID to identify the /reply
+    analog_index:int -> the index of the analog input (>= 1)
+    sends a /reply reply_id value
+
+/midichannel/set label channel
+
+    each output can have a midichannel
+    label: D1, A3, etc.
+    channel: 0-15
+
+/midicc/set label cc
+
+    each output has a CC 
+    normally, D1-D10 --> CC1-CC10
+
+/midicc/get ID label 
+
+    --> /reply ID cc
+
+/testblink numblink:int period:int (ms) dur:int(ms)
+
+/resetstate
+
+    reset state to its original state, does not change config
+
+/resetconfig
+
+    reset config to default values
+
+/calibrate
+
+    calibrate digital inputs
+
+/openlog debug:int
+
+    open the normal or the debug log
+
+/registerui [host] [port]
+
+    if no args:
+        register the address where the msg came
+    if 1 arg:
+        port: register localhost:port
+    if 2 args:
+        register as host:port
+    all gui related notifications will be sent to this addr.
+
+/logfile/get
+
+    returns "info:debug", path_info, path_debug
+
+/registerdata [host] [port]
+
+    same as /registerui
+
+/registerall [host] [port]
+    shortcut for /registerui /registerdata
+
+/signout [host] [port]
+    same as /registerui, removes observer 
+
+/api/get ID show
+
+    ID: ID to /reply to
+    show: if 1, it will be also output to stdout
+
+    returns /reply ID cmd1 cmd2 ... cmdn
+    where each cmd is a string of the form
+    path#types#docstr
+
+/devinfo/get (get protocol)
+
+    This call generates multiple replies
+    /devinfo tags info1 info2 ... infon
+        where:
+            tags -> a string of the form key1:key2:...
+            infox -> the value for each key
+    /devinfo/analogpin tags label info1 info2 ...
+        tags: "label:resolution:smoothing:filtertype:denoise:autorange:minvalue:maxvalue"
+        infox: the value of each key
+        This is sent for each analog pin
+
+/analogminval/set index value
+
+    Set the minimum raw value for analog input. autorange will be disabled
+
+/autorange/get ID index
+
+    Reply if autorange for this analog pin is set
+
+/autorange/set index value
+
+    Set autorange for analog input
+    index: 1-numAnalogInputs 
+    value: 0-1
+
+/ping ID [optional return addr]
+
+    ID: integer
+    will reply to /pingback ID
+
+    example:    /ping 34 localhost:9000 --> sends </pingback 34> to localhost:9000
+                /ping 34                --> sends </pingback 34> to the addr. where this msg was send from
+                /ping 34 9000           --> sends </pingback 34> to localhost:9000
+
+/report [optional return addr]
+
+    Sends a number of /println messages to caller
+
+/status/gets (get protocol)
+
+    returns the status of the device
+
+/digitalmapstr/get (get protocol)
+
+    returns a string representing the calibration of the digital inputs
+
+/midichannel/get replyID [label]
+
+    returns the midichannel of the corresponding pin
+    if label is not given, returns the midichannel
+    only if all pins share the same channel.
+    If the pins do not share the same channel, it returns -1
+
+/addrui/get
+
+    returns all addresses receiving ui info as a space separated string
+    "host1:port1 host2:port2 host3:port3 ... "
+
+/addrdara/get
+
+    same as /addrui
+
+/analogresolution/get ID analoginput
+
+    analoginput: 1-x
+    returns the analog resolution of the pin 
+
+/smoothing/get analoginput percent
+
+/filtertype/set analoginput value
+    value: 0=LOWPASS 1=MEDIAN 2=BESSEL1 3=BESSEL32
+
+/filtertype/get analoginput
+    replies with 0=LOWPASS 1=MEDIAN 2=BESSEL1 3=BESSEL32
+
+/quit
+    quit core (and gui)
+
+/midithrough/set wildcard
+    send all midi generated through to the devices matching wildcard
+
+/midioutports/get
+    get a list of possible ports to connect to         
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1071,7 +1071,7 @@ class Pedlbrd(object):
         try:
             self._serialconnection.write(s)
         except serial.SerialException:
-            self.error("could not send to device! SerialException")
+            self.logger.error("could not write to device! SerialException")
 
     def _send_osc_ui(self, path, *data):
         oscserver = self._oscserver
@@ -1178,7 +1178,7 @@ class Pedlbrd(object):
                 self._midithrough_ports.add(wildcard_or_index)
 
         else:
-            if not isisntance(wildcard_or_index, int):
+            if not isinstance(wildcard_or_index, int):
                 self.logger.error("midithrough ports can only be unset by index")
             else:
                 self._midithrough_ports.discard(wildcard_or_index)
@@ -1340,8 +1340,8 @@ class Pedlbrd(object):
         self._midithrough_set(wildcard_or_index, value)
 
     def cmd_midioutports_get(self, src, reply_id):
-        print src, reply_id, self._midiout.ports()
-        return self._midiout.ports()
+        self.logger.debug("midioutports: %s" % ", ".join(self._midiout.ports))
+        return self._midiout.ports
 
     def cmd_testblink(self, numblink, period, dur):
         """{iii}Produce a blink pattern on the device"""
