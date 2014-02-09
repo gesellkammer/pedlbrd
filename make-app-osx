@@ -1,7 +1,7 @@
 #!/bin/bash
 if [ -z $VIRTUAL_ENV ] ; then
 	echo ------------------------------------------------
-	echo  This script must be called withit a virtualenv
+	echo  This script must be called within a virtualenv
 	echo ------------------------------------------------
 	echo
 	exit

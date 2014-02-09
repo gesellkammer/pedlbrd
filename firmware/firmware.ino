@@ -48,7 +48,7 @@ INPUT
 //#define STRESS_TEST
 
 /* SETTINGS */
-#define ID 5                 // The ID of this pedal board
+#define ID 5                 // The ID of this device
 #define DEFAULT_DELAY 20  // Delay between each read, in ms (add also 1ms for each pin ~= +14ms)
 #define HEARTBEAT   300      // Period of the Heartbeat, in ms (Default, can be changed via serial)
 #define ANALOG_READ_DELAY 1  // delay between analog reads to stabilize impedence (see http://forums.adafruit.com/viewtopic.php?f=25&t=11597)
@@ -77,8 +77,8 @@ INPUT
 #define LEDPIN 13
 #define ADC_MAXVALUE 1023      // the resolution of the ADC (Arduino Leonardo -> 10bit, Arduino Due -> 12bit)
 #define ANALOG_RESOLUTION 1023  // should be equal or lower than ADC_MAXVALUE. This is to account for noise in the ADC
-#define BLINK_PERIOD_MS    40 
-#define BLINK_DURATION_MS 5
+#define BLINK_PERIOD_MS    60 
+#define BLINK_DURATION_MS 20
 #define HEARTBEAT_MINPERIOD 200
 #define HEARTBEAT_MAXPERIOD 800
 #define ANALOG_ACTIVATE_THRESHOLD 200
@@ -139,7 +139,8 @@ int
 
 bool 
 	apin_activated[MAX_ANALOG_PINS],
-	apin_denoise[MAX_ANALOG_PINS];
+	apin_denoise[MAX_ANALOG_PINS],
+	driver_present = false;
 
 float analog_smoothing[MAX_ANALOG_PINS];
 unsigned long last_millis[MAX_ANALOG_PINS];
@@ -162,6 +163,7 @@ const int
 unsigned long 
 	last_heartbeat = 0,
 	last_blink     = 0,
+	last_incomming_heartbeat = 0,
 	now;
 
 char command[COMMAND_MAXLENGTH];
@@ -282,6 +284,35 @@ int set_analog_resolution_for_pin(int pin, int resolution) {
 	}
 }
 
+void setup_filter(int pin, int preset) {
+	char filtertype;
+	int order;
+	if( filtertypes[pin] == preset ) {
+		return;
+	}
+	filtertypes[pin] = preset;
+	if( preset == 0 ) {
+		return;
+	}
+	switch( preset ) {
+		case FILTER_MEDIAN:
+			filtertype='m';
+			order=2;
+			break;	
+		case FILTER_BESSEL1:
+			filtertype='b';
+			order=1;
+			break;
+		case FILTER_BESSEL2:
+			filtertype='b';
+			order=2;
+			break;
+	};
+	Filter[pin].begin();
+	Filter[pin].setFilter(filtertype);
+	Filter[pin].setOrder(order);
+}
+
 void set_filtertype(int pin, int filtertype) {
 	if( pin < 0 || pin >= MAX_ANALOG_PINS ) {
 		send_error(ERROR_INDEX);
@@ -292,7 +323,7 @@ void set_filtertype(int pin, int filtertype) {
 		return;
 	}
 	if( filtertypes[pin] != filtertype ) {
-		setup_filter(pin, filtertype);
+		//setup_filter(pin, filtertype);
 		EEPROM.write(ADDR0 + ADDR_U1_FILTERTYPE + pin, filtertype);
 	}
 }
@@ -396,35 +427,6 @@ void reset() {
 	}
 }
 
-void setup_filter(int pin, int preset) {
-	char filtertype;
-	int order;
-	if( filtertypes[pin] == preset ) {
-		return;
-	}
-	filtertypes[pin] = preset;
-	if( preset == 0 ) {
-		return;
-	}
-	switch( preset ) {
-		case FILTER_MEDIAN:
-			filtertype='m';
-			order=2;
-			break;	
-		case FILTER_BESSEL1:
-			filtertype='b';
-			order=1;
-			break;
-		case FILTER_BESSEL2:
-			filtertype='b';
-			order=2;
-			break;
-	};
-	Filter[pin].begin();
-	Filter[pin].setFilter(filtertype);
-	Filter[pin].setOrder(order);
-}
-
 /////////////////////////////////////////////////////////
 //  MESSAGE PARSING
 /////////////////////////////////////////////////////////
@@ -433,6 +435,10 @@ void act_on_command() {
 	int value, i;
 	byte pin, replyid;
 	switch( command[0] ) {
+		case 'H': // receive heartbeat from driver
+			CHECK_CMD_LENGTH(1)
+			last_incomming_heartbeat = now;
+			break;
 		case 'F': 
 			CHECK_CMD_LENGTH(1)
 			force_digital_read = true;
@@ -637,9 +643,17 @@ void loop() {
 	#ifdef SEND_HEARTBEAT
 	if( ((now - last_heartbeat) > heartbeat_period) || (last_heartbeat > now) ) {
 		Serial.write(128 + CMD_HERTBEAT); 
+		Serial.write(ID);
 		last_heartbeat = now;
 	}
 	#endif
+
+	
+	driver_present = (now - last_incomming_heartbeat) < 1000;
+	if( !driver_present ) {
+		blink_led = true;
+	}
+	
 
 	////////////////////////
 	// BUTTON
