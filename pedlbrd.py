@@ -9,8 +9,8 @@ PORT_UNSET = -1
 def with_gui(coreport):
     """create the core process and a gui on the local machine, on the same process"""
     print "with gui"
-    from pedlbrd import gui
-    # from pedlbrd import qtgui as gui
+    # from pedlbrd import gui
+    from pedlbrd import qtgui as gui
 
     p = get_core(coreport)
     p.start(async=True)
@@ -47,17 +47,15 @@ def detached_gui_reverse(coreport):
     """create the core process and a gui on the local machine, on different processes"""
     print "detached gui reverse"
     import subprocess, time
-    #from pedlbrd import gui
     from pedlbrd import qtgui as gui
-
-    core_manager = subprocess.Popen(args=[sys.executable, 'Pedlbrd.py', '--nogui'])
+    core_manager = subprocess.Popen(args=[sys.executable, 'pedlbrd.py', '--nogui'])
     # This will block until the gui quits
     gui.start(('localhost', 47120))
     
-
     
 def no_gui(coreport):
     """create the core process only"""
+    print "no gui"
     p = get_core(coreport)
     if p is None:
         print "could not create driver"
@@ -129,7 +127,6 @@ if __name__ == '__main__':
         print "starting core and gui in single process"
         with_gui(port)
     elif GUI and DETACHED:
-        print "detached"
         detached_gui_reverse(port)
     else:
         no_gui(port)

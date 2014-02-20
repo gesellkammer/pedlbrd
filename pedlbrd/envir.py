@@ -14,8 +14,8 @@ DEFAULT_PATHS = {
 	'darwin': {
 		'configpath' : os.path.expanduser("~/.pedlbrd")
 	},
-	'linux': {
-		'configpath' : os.path.expanduser("~/.pedlbrd")
+	'linux2': {
+		'configpath' : os.path.expanduser("~/.config/pedlbrd")
 	},
 	'win32': {}
 }
@@ -78,6 +78,8 @@ def possible_ports():
 	"""
 	if sys.platform == 'darwin':
 		ports = glob.glob("/dev/tty.usbmodem*")
+	elif sys.platform == 'linux2':
+		ports = glob.glob("/dev/*ACM*")
 	else:
 		print "Platform not supported!"
 		return None

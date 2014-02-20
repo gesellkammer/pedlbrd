@@ -1719,8 +1719,8 @@ class Pedlbrd(object):
             os.system("open -a Console %s" % self.logger.filename_info)
             if debug:
                 os.system("open -a Console %s" % self.logger.filename_debug)
-        else:
-            self.logger.error("...")
+        elif sys.platform == 'linux2':
+            os.system("xdg-open %s" % self.logger.filename_debug)
             return
 
     # --------------------------------------------------------
