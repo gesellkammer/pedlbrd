@@ -312,7 +312,7 @@ class Pedlbrd(object):
         if restore_session is None:
             restore_session = self.env['restore_session']
         self.config, self.configfile = self._load_config(config, kws, restore_session=restore_session)
-
+        self._serialport = None
         self._labels = self.config['input_definition'].keys()
         self._running = False
         self._status  = ''
@@ -1038,10 +1038,16 @@ class Pedlbrd(object):
             except KeyboardInterrupt:   # poner una opcion en config para decidir si hay que interrumpir por ctrl-c
                 print "keyboard interrupt!"
                 pass
-            except OSError, serial.SerialException:
+            except OSError:
+                print "OSError!"
+                self.logger.error("OSError!")
+                continue
+            except serial.SerialException:
+                print "SerialException"
+                self.logger.error("SerialException")
                 # arduino disconnected -> s.read throws device not configured
                 # don't do anything here, it will reconnect on the next loop
-                pass
+                continue
         self._terminate()
 
     def send_to_device(self, bytes, callback=None):

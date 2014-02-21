@@ -15,11 +15,11 @@
    height="1052.3622047"
    id="svg2"
    version="1.1"
-   inkscape:version="0.48+devel r10221"
+   inkscape:version="0.48.3.1 r9886"
    sodipodi:docname="pedlbrd-icon.svg"
-   inkscape:export-filename="/Users/edu/dev/pedlbrd/images/pedlbrd-icon16.png"
-   inkscape:export-xdpi="6.4899998"
-   inkscape:export-ydpi="6.4899998">
+   inkscape:export-filename="/home/em/dev/pedlbrd/assets/pedlbrd-icon-128.png"
+   inkscape:export-xdpi="51.959999"
+   inkscape:export-ydpi="51.959999">
   <defs
      id="defs4">
     <linearGradient
@@ -34,7 +34,6 @@
          id="stop2339" />
     </linearGradient>
     <linearGradient
-       inkscape:collect="always"
        id="linearGradient2315"
        osb:paint="gradient">
       <stop
@@ -86,15 +85,15 @@
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
      inkscape:zoom="0.80957127"
-     inkscape:cx="102.27636"
-     inkscape:cy="803.26199"
+     inkscape:cx="157.24373"
+     inkscape:cy="740.26568"
      inkscape:document-units="px"
      inkscape:current-layer="layer1"
      showgrid="false"
-     inkscape:window-width="1916"
-     inkscape:window-height="1036"
+     inkscape:window-width="1280"
+     inkscape:window-height="776"
      inkscape:window-x="0"
-     inkscape:window-y="0"
+     inkscape:window-y="24"
      inkscape:window-maximized="1" />
   <metadata
      id="metadata7">
@@ -112,14 +111,12 @@
      inkscape:label="Layer 1"
      inkscape:groupmode="layer"
      id="layer1">
-    <rect
-       style="fill:url(#linearGradient2341);fill-opacity:1;fill-rule:evenodd;stroke:none;stroke-width:6.87500000000000000;stroke-linejoin:miter;stroke-miterlimit:4;stroke-opacity:1;stroke-dasharray:none;stroke-dashoffset:0"
+    <path
+       style="fill:url(#linearGradient2341);fill-opacity:1;fill-rule:evenodd;stroke:none"
+       d="m 165.93155,120.22866 164.8722,0 c 23.15947,0 28.42625,6.50199 28.42625,28.42624 l 0,164.87221 c 0,24.39468 -4.03156,28.42624 -28.42625,28.42624 l -164.8722,0 c -25.62991,0 -28.42624,-7.73722 -28.42624,-28.42624 l 0,-164.87221 c 0,-24.39469 5.26677,-28.42624 28.42624,-28.42624 z"
        id="rect85"
-       width="221.72469"
-       height="221.72469"
-       x="137.50531"
-       y="120.22866"
-       ry="28.426241" />
+       inkscape:connector-curvature="0"
+       sodipodi:nodetypes="sssssssss" />
     <g
        id="layer1-7"
        transform="matrix(1.2903402,0,0,1.2903402,-225.68525,-474.25039)"

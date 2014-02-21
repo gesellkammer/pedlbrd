@@ -5,10 +5,37 @@ import liblo
 
 global qt_app
 
+## /////////// HELPERS
+
 def _func2osc(func):
     def wrap(path, args, types, src):
         func(*args)
     return wrap
+
+class InvokeEvent(QEvent):
+    EVENT_TYPE = QEvent.Type(QEvent.registerEventType())
+
+    def __init__(self, fn, *args, **kwargs):
+        QEvent.__init__(self, InvokeEvent.EVENT_TYPE)
+        self.fn = fn
+        self.args = args
+        self.kwargs = kwargs
+
+
+class Invoker(QObject):
+    def event(self, event):
+        event.fn(*event.args, **event.kwargs)
+
+        return True
+
+_invoker = Invoker()
+
+
+def invoke_in_main_thread(fn, *args, **kwargs):
+    QCoreApplication.postEvent(_invoker,
+        InvokeEvent(fn, *args, **kwargs))
+
+## /////////////////// OSC
 
 class OSCThread(QThread):
     def __init__(self, gui, pedlbrd_address, parent=None):
@@ -66,14 +93,18 @@ class OSCThread(QThread):
 
     def cmd_data_D(self, digpin, value):
         #self.gui.set_digitalpin(digpin, value)
-        self.gui.digpins[digpin-1].setValue(value)
+        #def update(pin, value, gui):
+        #    gui.digpins[pin].setValue(value)
+        #invoke_in_main_thread(update, digpin-1, value, self.gui) 
+        invoke_in_main_thread((lambda gui, pin, value:gui.digpins[pin].setValue(value)), self.gui, digpin-1, value)
+
 
     def cmd_data_A(self, anpin, value):
-        now = time.time()
-        if now - self._last_time_anpin[anpin] > 0.05:
-            #self.gui.anpins[anpin-1].setValue(value*256)
-            self.gui.anpins[anpin-1].setValue(value)
-            self._last_time_anpin[anpin] = now
+        #now = time.time()
+        #if now - self._last_time_anpin[anpin] > 0.05:
+        #    invoke_in_main_thread((lambda gui,pin,value:gui.anpins[pin].setValue(value)), self.gui, anpin-1, value)
+        #    self._last_time_anpin[anpin] = now
+        invoke_in_main_thread((lambda gui,pin,value:gui.anpins[pin].setValue(value)), self.gui, anpin-1, value)
 
     def get(self, param, callback, *args):
         path = "/%s/get" % param
@@ -87,9 +118,14 @@ class OSCThread(QThread):
         if func:
             func(*args)
 
+    def cmd_notify_calibrate(self):
+        invoke_in_main_thread(lambda gui:gui.reset_digital_pins(), self.gui)
+
     def _get_reply_id(self):
         self._last_replyid = (self._last_replyid + 1) % 999999
         return self._last_replyid
+
+## /////////// WIDGETS
 
 class Slider(QWidget):
     def __init__(self, parent=None):
@@ -170,6 +206,9 @@ class Pedlbrd(QWidget):
         self.osc_thread = OSCThread(self, pedlbrd_address=pedlbrd_address)
         self.osc_thread.start()
         self._last_heartbeat = time.time()
+        self.setWindowIcon(QIcon('assets/pedlbrd-icon.png'))
+
+        # -----------------------------------------------
         self.setup_widgets()
         self.call_later(1000, self.post_init)
 
@@ -261,24 +300,15 @@ class Pedlbrd(QWidget):
         positions = ((0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2), (2, 0), (2, 1), (2, 2), (3, 1))
         for chk, position in zip(chks, positions):
             x, y = position
-            # chk.setFixedSize(grid_size*0.5, grid_size*0.5)
             grid.addWidget(chk, x, y)
         grid0.addLayout(grid, 0, 0)
         
         # Sliders
-        def new_slider():
-            # s = QSlider(Qt.Vertical)
-            s = Slider()
-            #s.setMinimum(0)
-            #s.setMaximum(256)
-            return s
-        sliders = [new_slider() for i in range(4)]
+        sliders = [Slider() for i in range(4)]
         self.anpins = sliders
         slider_grid = QGridLayout()
         for i, slider in enumerate(sliders):
             slider_grid.addWidget(slider, 0, i, 1, 1)
-
-            # addWidget ( QWidget * widget, int fromRow, int fromColumn, int rowSpan, int columnSpan, Qt::Alignment alignment = 0 )
 
         grid0.addLayout(slider_grid, 0, 1)
  
@@ -304,15 +334,11 @@ class Pedlbrd(QWidget):
     def post_init(self):
         # init midiports list
         print "post_init"
-        #def later(self):
-        #    print "midiports set to", self._midiports
-        #    for i, portname in enumerate(self._midiports[:5]):
-        #        self.midiports_checkboxes[i].setText(portname)
-        def later(self):
+        def callback(self):
             self.midiports_combo.addItems(self._midiports)
             self.midiports_combo.setMinimumWidth(self.midiports_combo.minimumSizeHint().width())
             self.setFixedSize(self.sizeHint())
-        self.get_midiports(later)
+        self.get_midiports(callback)
 
     def set_digitalpin(self, pin, value):
         self.digpins[pin-1].setValue(value)
@@ -323,6 +349,9 @@ class Pedlbrd(QWidget):
         
     def action_reset(self):
         self.osc_thread.sendosc('/resetstate')
+        self.reset_digital_pins()
+        
+    def reset_digital_pins(self):
         for digpin in self.digpins:
             digpin.setValue(0)
 
@@ -354,16 +383,18 @@ class Pedlbrd(QWidget):
         self.action_hack()
 
     def action_midithrough(self, index):
-        if index == 0 and self._midithrough_index is not None:
-            self.osc_thread.sendosc('/midithrough/set', self._midithrough_index, 0)
-            self._midithrough_index = None
-        elif self._midithrough_index is not None:
-            self.osc_thread.sendosc('/midithrough/set', self._midithrough_index, 0)
-            self._midithrough_index = index - 1
-            self.call_later(100, lambda:self.osc_thread.sendosc('/midithrough/set', index-1, 1))
+        if self._midithrough_index is not None:
+            if index == 0:
+                self.osc_thread.sendosc('/midithrough/set', self._midithrough_index, 0)
+                self._midithrough_index = None
+            else:
+                self.osc_thread.sendosc('/midithrough/set', self._midithrough_index, 0)
+                self._midithrough_index = index - 1
+                self.call_later(100, lambda:self.osc_thread.sendosc('/midithrough/set', index-1, 1))
         else:
-            self._midithrough_index = index - 1
-            self.osc_thread.sendosc('/midithrough/set', index-1, 1)
+            if index > 0:
+                self._midithrough_index = index - 1
+                self.osc_thread.sendosc('/midithrough/set', index-1, 1)
 
     def call_later(self, ms, action):
         QTimer.singleShot(ms, action)
@@ -393,6 +424,7 @@ def start(pedlbrd_address=("localhost", 47120)):
     # Create an instance of the application window and run it
     global qt_app
     qt_app = QApplication(sys.argv)
+    # qt_app.setWindowIcon(QIcon("assets/pedlbrd-icon.png"))
     app = Pedlbrd( pedlbrd_address )
     app.run()
     app.osc_thread.stop()

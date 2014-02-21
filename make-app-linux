@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# pyinstaller pedlbrd.py
+pyinstaller pedlbrd.spec
+sudo cp -r dist/pedlbrd /opt
+cp extra/pedlbrd.desktop ~/.local/share/applications
