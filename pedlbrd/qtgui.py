@@ -60,15 +60,7 @@ class OSCThread(QThread):
             path = '/' + '/'.join(path)
             func = _func2osc(method)
             self.s.add_method(path, None, func)
-        def default(path, args, types, src):
-            print path, args, src
-        def reply_handler(path, args, types, src):
-            reply_id = args[1]
-            func = self._reply_callbacks.get(reply_id)
-            if func:
-                reply_args = args[2:]
-                func(*reply_args)
-
+        
     def run(self):
         self._exiting = False
         while self.isRunning() and not self._exiting:
@@ -96,17 +88,34 @@ class OSCThread(QThread):
     def cmd_data_A(self, pin, value):
         self.gui.anpins[pin - 1].setValue(value)
 
-    def get(self, param, callback, *args):
+    def _get(self, param, callback, args, in_main_thread):
         path = "/%s/get" % param
         reply_id = self._get_reply_id()
         print "get, param: %s, reply_id: %d" % (param, reply_id)
-        self._reply_callbacks[reply_id] = callback
+        self._reply_callbacks[reply_id] = (callback, in_main_thread)
         self.s.send(self.pedlbrd_address, path, reply_id, *args)
 
+    def get(self, param, callback, *args):
+        """
+        communicate with the core via the get protocol.
+        The callback should not update the UI
+        """
+        self._get(param, callback, args, in_main_thread=False)
+
+    def get_mainthread(self, param, callback, *args):
+        """
+        communicate with the core via the get protocol.
+        The callback can update the UI
+        """
+        self._get(param, callback, args, in_main_thread=True)
+
     def cmd_reply(self, param, replyid, *args):
-        func = self._reply_callbacks.get(replyid)
+        func, in_main_thread = self._reply_callbacks.get(replyid, (None, None))
         if func:
-            func(*args)
+            if in_main_thread:
+                invoke_in_main_thread(func, *args)
+            else:
+                func(*args)
 
     def cmd_notify_calibrate(self):
         invoke_in_main_thread(lambda gui:gui.reset_digital_pins(), self.gui)
@@ -209,7 +218,7 @@ class Pedlbrd(QWidget):
         # -----------------------------------------------
         self.setup_widgets()
         self.create_polltimer()
-        self.call_later(1000, self.post_init)
+        self.call_later(2000, self.post_init)
         
     def create_polltimer(self):
         self._polltimer = timer = QTimer()
@@ -219,15 +228,14 @@ class Pedlbrd(QWidget):
     def on_heartbeat(self):
         new_status = "ACTIVE"
         if self.conn_status != new_status:
-            self.update()
+            self.update_status()
         self.set_status("ACTIVE")
         
-    def update(self):
+    def update_status(self):
         # update midichannel
-        def callback(chan):
-            print "callback!", chan
-            self.set_midichannel(chan)
-        self.osc_thread.get("midichannel", callback)
+        #def update_midichannel(chan):
+        #    invoke_in_main_thread(self.set_midichannel, chan)
+        self.osc_thread.get_mainthread("midichannel", lambda chan:self.set_midichannel)
 
     def poll_action(self):
         for pin in self.anpins:
@@ -341,7 +349,7 @@ class Pedlbrd(QWidget):
     def post_init(self):
         # init midiports list
         def callback(self):
-            print "callback!", self._midiports
+            print "post_init:callback", self._midiports
             self.midiports_combo.addItems(self._midiports)
             self.midiports_combo.setMinimumWidth(self.midiports_combo.minimumSizeHint().width())
             self.setFixedSize(self.sizeHint())
@@ -379,12 +387,14 @@ class Pedlbrd(QWidget):
             elif sys.platform == 'linux2':
                 print "platform not supported"
 
-    def get_midiports(self, callback=None):
-        def callback0(*ports):
+    def get_midiports(self, notify=None):
+        def callback(*ports):
+            print "get_midiports:callback", ports
             self._midiports = ports
-            if callback is not None:
-                callback(self)
-        self.osc_thread.get('midioutports', callback0)
+            if notify is not None:
+                notify(self)
+        print "getting midioutports, notify set:", (notify is not None)
+        self.osc_thread.get_mainthread('midioutports', callback)
 
     def action_debug(self):
         self.osc_thread.sendosc('/openlog', 0)
