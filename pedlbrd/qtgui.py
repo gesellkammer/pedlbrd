@@ -2,6 +2,7 @@ from PySide.QtCore import *
 from  PySide.QtGui import *
 import sys, os, time, subprocess
 import liblo
+import Queue
 
 global qt_app
 
@@ -89,16 +90,20 @@ class OSCThread(QThread):
         if label == "*":
             self.gui.set_midichannel(channel)
 
-    def cmd_data_D(self, digpin, value):
-        invoke_in_main_thread((lambda gui, pin, value:gui.digpins[pin].setValue(value)), self.gui, digpin-1, value)
+    def cmd_data_D(self, pin, value):
+        self.gui.digpins[pin-1].setValue(value)
+        #invoke_in_main_thread((lambda gui, pin, value:gui.digpins[pin].setValue(value)), self.gui, digpin-1, value)
 
-    def cmd_data_A(self, anpin, value):
-        now = time.time()
-        pin = anpin - 1
-        if now - self._last_time_anpin[pin] > 0.05 or abs(value - self._analog_value[pin]) > 0.08:
-            self._analog_value[pin] = value
-            self._last_time_anpin[pin] = now
-            invoke_in_main_thread((lambda gui,pin,value:gui.anpins[pin].setValue(value)), self.gui, pin, value)
+    #def cmd_data_A(self, anpin, value):
+    #    now = time.time()
+    #    pin = anpin - 1
+    #    if now - self._last_time_anpin[pin] > 0.05 or abs(value - self._analog_value[pin]) > 0.08:
+    #        self._analog_value[pin] = value
+    #        self._last_time_anpin[pin] = now
+    #        invoke_in_main_thread((lambda gui,pin,value:gui.anpins[pin].setValue(value)), self.gui, pin, value)
+
+    def cmd_data_A(self, pin, value):
+        self.gui.anpins[pin - 1].setValue(value)
 
     def get(self, param, callback, *args):
         path = "/%s/get" % param
@@ -131,10 +136,14 @@ class Slider(QWidget):
         self._pen = pen
         self._coloroff = QColor(240, 240, 240)
         self._coloron  = QColor(80, 10, 255)
+        self._dirty = False
+    
     def minimumSizeHint(self):
         return QSize(10, 10)
+
     def sizeHint(self):
         return QSize(10, 100)
+    
     def paintEvent(self, event):
         p = QPainter()
         p.begin(self)
@@ -147,15 +156,24 @@ class Slider(QWidget):
         p.setBrush(self._coloron)
         p.drawRect(0, y, w, h-y)
         p.end()
+        self._dirty = False
+    
     def setValue(self, value):
         self._value = value
-        self.repaint()
+        self._dirty = True
+        # self.repaint()
 
 class BigCheckBox(QWidget):
     def __init__(self, size, parent=None):
         super(BigCheckBox, self).__init__(parent)
         self._size = size
+        self._dirty = False
         self.value = 0
+        self._pen = pen = QPen()
+        pen.setColor(QColor(50, 50, 50, 50))
+        pen.setWidth(4)
+        self._brushes = (QColor(240, 240, 240), QColor(255, 0, 0))
+
     def minimumSizeHint(self):
         return QSize(self._size, self._size)
     
@@ -166,23 +184,19 @@ class BigCheckBox(QWidget):
 
     def setValue(self, value):
         self.value = value
-        self.repaint()
+        self._dirty = True
 
     def paintEvent(self, event):
         p = QPainter()
-        pen = QPen()
-        pen.setColor(QColor(50, 50, 50, 50))
-        pen.setWidth(4)
+        pen = self._pen
         p.begin(self)
         cx, cy = self.get_center()
         r = self._size * 0.5
         p.setPen(pen)
-        if self.value == 0:
-            p.setBrush(QColor(240, 240, 240))
-        else:
-            p.setBrush(QColor(255, 0, 0))
+        p.setBrush(self._brushes[self.value>0])
         p.drawRect(cx-r, cy-r, self._size, self._size)
         p.end()
+        self._dirty = False
 
 #######################################################
 #         MAIN             
@@ -190,8 +204,6 @@ class BigCheckBox(QWidget):
 
 class Pedlbrd(QWidget):
     def __init__(self, pedlbrd_address):
-        # Initialize the object as a QWidget and
-        # set its title and minimum width
         super(Pedlbrd, self).__init__()
         self._pedlbrd_address = pedlbrd_address
         self._midithrough_index = None
@@ -200,12 +212,18 @@ class Pedlbrd(QWidget):
         self.osc_thread = OSCThread(self, pedlbrd_address=pedlbrd_address)
         self.osc_thread.start()
         self._last_heartbeat = time.time()
+        self._polltimer_updaterate = 12
         self.setWindowIcon(QIcon('assets/pedlbrd-icon.png'))
-
         # -----------------------------------------------
         self.setup_widgets()
+        self.create_polltimer()
         self.call_later(1000, self.post_init)
-
+        
+    def create_polltimer(self):
+        self._polltimer = timer = QTimer()
+        timer.timeout.connect(self.poll_action)
+        timer.start(1000 / self._polltimer_updaterate)
+        
     def on_heartbeat(self):
         new_status = "ACTIVE"
         if self.conn_status != new_status:
@@ -218,6 +236,14 @@ class Pedlbrd(QWidget):
             print "callback!", chan
             self.set_midichannel(chan)
         self.osc_thread.get("midichannel", callback)
+
+    def poll_action(self):
+        for pin in self.anpins:
+            if pin._dirty:
+                pin.repaint()
+        for pin in self.digpins:
+            if pin._dirty:
+                pin.repaint()
 
     def set_status(self, status):
         self.conn_status = status
@@ -259,9 +285,6 @@ class Pedlbrd(QWidget):
         # Add the form layout to the main VBox layout
         self.layout.addLayout(form_layout)
  
-        # Add stretch to separate the form layout from the button
-        # self.layout.addStretch(1)
- 
         # Create a horizontal box layout to hold the button
         button_box = QHBoxLayout()
  
@@ -270,8 +293,6 @@ class Pedlbrd(QWidget):
         reset_button.clicked.connect(self.action_reset)
         debug_button = QPushButton('Debug', self)
         debug_button.clicked.connect(self.action_debug)
-        #hack_button = QPushButton('Hack', self)
-        #hack_button.clicked.connect(self.action_hack)
         
         self.quit_button = QPushButton('Quit', self)
         self.quit_button.clicked.connect(QCoreApplication.instance().quit)
@@ -327,7 +348,6 @@ class Pedlbrd(QWidget):
 
     def post_init(self):
         # init midiports list
-        print "post_init"
         def callback(self):
             self.midiports_combo.addItems(self._midiports)
             self.midiports_combo.setMinimumWidth(self.midiports_combo.minimumSizeHint().width())
@@ -410,16 +430,12 @@ class Pedlbrd(QWidget):
         }
 
     def run(self):
-        # Show the form
         self.show()
-        # Run the qt application
         qt_app.exec_()
  
 def start(pedlbrd_address=("localhost", 47120)):
-    # Create an instance of the application window and run it
     global qt_app
     qt_app = QApplication(sys.argv)
-    # qt_app.setWindowIcon(QIcon("assets/pedlbrd-icon.png"))
     app = Pedlbrd( pedlbrd_address )
     app.run()
     app.osc_thread.stop()
