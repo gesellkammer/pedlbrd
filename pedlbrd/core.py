@@ -1422,7 +1422,7 @@ class Pedlbrd(object):
     def cmd_api_get(self, src, reply_id, show=0):
         """{i} replies with a list of api commands"""
         args = []
-        print "api/get"
+        print "/api/get"
         def sanitize(arg):
             if arg is None:
                 arg = "-"
@@ -1461,14 +1461,13 @@ class Pedlbrd(object):
 
     def cmd__ping(self, path, args, types, src):
         """
-        PING protocol: /ping [optional return addr] ID --> will always reply to path /pingback on the 
-        src address if no address is given. /pingback should return the ID given in /ping
-
-        ID is an integer 
-
-        /ping 3456 localhost:9000
-        /ping 3456 9000 (use src.hostname:9000)
-        /ping 3456 (use src.hostname:src.port)
+        PING protocol: /ping [optional-return-addr] ID:int
+        will always reply to path /pingback on the 
+        src address if no address is given. 
+        /pingback should return the ID given in /ping
+        Examples: /ping localhost:9000 3456
+                  /ping 9000 3456 (uses src.hostname:9000)
+                  /ping 3456 (use src.hostname:src.port)
         """
         addr = _oscmeta_get_addr(args, src)
         self._oscserver.send(addr, '/pingback')

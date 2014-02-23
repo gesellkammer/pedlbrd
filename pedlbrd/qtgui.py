@@ -5,7 +5,7 @@ import liblo
 
 global qt_app
 
-## /////////// HELPERS
+## /////////// HELPERS ////////////
 
 def _func2osc(func):
     def wrap(path, args, types, src):
@@ -15,27 +15,24 @@ def _func2osc(func):
 class InvokeEvent(QEvent):
     EVENT_TYPE = QEvent.Type(QEvent.registerEventType())
 
-    def __init__(self, fn, *args, **kwargs):
+    def __init__(self, fn, *args):
         QEvent.__init__(self, InvokeEvent.EVENT_TYPE)
         self.fn = fn
         self.args = args
-        self.kwargs = kwargs
-
 
 class Invoker(QObject):
     def event(self, event):
-        event.fn(*event.args, **event.kwargs)
-
+        event.fn(*event.args)
         return True
 
 _invoker = Invoker()
 
 
-def invoke_in_main_thread(fn, *args, **kwargs):
+def invoke_in_main_thread(fn, *args):
     QCoreApplication.postEvent(_invoker,
-        InvokeEvent(fn, *args, **kwargs))
+        InvokeEvent(fn, *args))
 
-## /////////////////// OSC
+## /////////////////// OSC //////////////////////
 
 class OSCThread(QThread):
     def __init__(self, gui, pedlbrd_address, parent=None):
@@ -92,19 +89,11 @@ class OSCThread(QThread):
             self.gui.set_midichannel(channel)
 
     def cmd_data_D(self, digpin, value):
-        #self.gui.set_digitalpin(digpin, value)
-        #def update(pin, value, gui):
-        #    gui.digpins[pin].setValue(value)
-        #invoke_in_main_thread(update, digpin-1, value, self.gui) 
         invoke_in_main_thread((lambda gui, pin, value:gui.digpins[pin].setValue(value)), self.gui, digpin-1, value)
 
-
     def cmd_data_A(self, anpin, value):
-        #now = time.time()
-        #if now - self._last_time_anpin[anpin] > 0.05:
-        #    invoke_in_main_thread((lambda gui,pin,value:gui.anpins[pin].setValue(value)), self.gui, anpin-1, value)
-        #    self._last_time_anpin[anpin] = now
         invoke_in_main_thread((lambda gui,pin,value:gui.anpins[pin].setValue(value)), self.gui, anpin-1, value)
+
 
     def get(self, param, callback, *args):
         path = "/%s/get" % param
@@ -274,8 +263,8 @@ class Pedlbrd(QWidget):
         # Add stretch to push the button to the far right
         reset_button = QPushButton('Reset', self)
         reset_button.clicked.connect(self.action_reset)
-        console_button = QPushButton('Console', self)
-        console_button.clicked.connect(self.action_console)
+        debug_button = QPushButton('Debug', self)
+        debug_button.clicked.connect(self.action_debug)
         #hack_button = QPushButton('Hack', self)
         #hack_button.clicked.connect(self.action_hack)
         
@@ -284,7 +273,7 @@ class Pedlbrd(QWidget):
         self.quit_button.clicked.connect(self.action_quit)
 
         # Add it to the button box
-        buttons = [reset_button, console_button]
+        buttons = [reset_button, debug_button]
         for button in buttons:
             button_box.addWidget(button)
         button_box.addStretch(1)
@@ -366,9 +355,10 @@ class Pedlbrd(QWidget):
                 p = subprocess.Popen(args=['osascript', 
                     '-e', 'tell app "Terminal"', 
                     '-e', 'do script "{python} {pedltalk}"'.format(python=sys.executable, pedltalk=pedltalkpath),
+                    '-e', 'activate',
                     '-e', 'end tell'])
                 self._subprocs['pedltalk'] = p
-            else:
+            elif sys.platform == 'linux2':
                 print "platform not supported"
 
     def get_midiports(self, callback=None):
@@ -378,7 +368,7 @@ class Pedlbrd(QWidget):
                 callback(self)
         self.osc_thread.get('midioutports', callback0)
 
-    def action_console(self):
+    def action_debug(self):
         self.osc_thread.sendosc('/openlog', 0)
         self.action_hack()
 
