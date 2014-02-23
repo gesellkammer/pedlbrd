@@ -257,7 +257,6 @@ def show_api():
     result = []
     def callback(path, args, types, src):
         result.extend(args)
-    #register_callback('/reply/api', callback, oneshot=True)
     register_callback('/reply', callback, oneshot=True, match=lambda path, args, t, s: args[0] == 'api')
     global print_enabled
     print_enabled = False
@@ -275,7 +274,14 @@ def show_api():
     methods = result[2:]
     for method in methods:
         path, sig, doc = method.split('#')
-        print "{path} {sig} {doc}".format(path=path.ljust(20), sig=sig.ljust(6), doc=doc)
+        doclines = doc.splitlines()
+        header = "{path} {sig}".format(path=path.ljust(20), sig=sig.ljust(6))
+        firstline = "{header} {doc}".format(header=header, doc=doclines[0])
+        print firstline
+        if len(doclines) > 1:
+            for line in doclines[1:]:
+                # print line.rjust(len(header)) 
+                print " "*len(header), line   
 
 def show_help():
     commands = (

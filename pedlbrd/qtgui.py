@@ -2,10 +2,11 @@ from PySide.QtCore import *
 from  PySide.QtGui import *
 import sys, os, time, subprocess
 import liblo
+import Queue
 
 global qt_app
 
-## /////////// HELPERS
+## /////////// HELPERS ////////////
 
 def _func2osc(func):
     def wrap(path, args, types, src):
@@ -15,27 +16,24 @@ def _func2osc(func):
 class InvokeEvent(QEvent):
     EVENT_TYPE = QEvent.Type(QEvent.registerEventType())
 
-    def __init__(self, fn, *args, **kwargs):
+    def __init__(self, fn, *args):
         QEvent.__init__(self, InvokeEvent.EVENT_TYPE)
         self.fn = fn
         self.args = args
-        self.kwargs = kwargs
-
 
 class Invoker(QObject):
     def event(self, event):
-        event.fn(*event.args, **event.kwargs)
-
+        event.fn(*event.args)
         return True
 
 _invoker = Invoker()
 
 
-def invoke_in_main_thread(fn, *args, **kwargs):
+def invoke_in_main_thread(fn, *args):
     QCoreApplication.postEvent(_invoker,
-        InvokeEvent(fn, *args, **kwargs))
+        InvokeEvent(fn, *args))
 
-## /////////////////// OSC
+## /////////////////// OSC //////////////////////
 
 class OSCThread(QThread):
     def __init__(self, gui, pedlbrd_address, parent=None):
@@ -53,6 +51,7 @@ class OSCThread(QThread):
         self._reply_callbacks = {}
         self._last_replyid = 0
         self._last_time_anpin = [0, 0, 0, 0]
+        self._analog_value = [0, 0, 0, 0]
 
     def register_osc_methods(self):
         cmds = [(a, getattr(self, a)) for a in dir(self) if a.startswith('cmd_')]
@@ -61,15 +60,7 @@ class OSCThread(QThread):
             path = '/' + '/'.join(path)
             func = _func2osc(method)
             self.s.add_method(path, None, func)
-        def default(path, args, types, src):
-            print path, args, src
-        def reply_handler(path, args, types, src):
-            reply_id = args[1]
-            func = self._reply_callbacks.get(reply_id)
-            if func:
-                reply_args = args[2:]
-                func(*reply_args)
-
+        
     def run(self):
         self._exiting = False
         while self.isRunning() and not self._exiting:
@@ -91,32 +82,40 @@ class OSCThread(QThread):
         if label == "*":
             self.gui.set_midichannel(channel)
 
-    def cmd_data_D(self, digpin, value):
-        #self.gui.set_digitalpin(digpin, value)
-        #def update(pin, value, gui):
-        #    gui.digpins[pin].setValue(value)
-        #invoke_in_main_thread(update, digpin-1, value, self.gui) 
-        invoke_in_main_thread((lambda gui, pin, value:gui.digpins[pin].setValue(value)), self.gui, digpin-1, value)
+    def cmd_data_D(self, pin, value):
+        self.gui.digpins[pin-1].setValue(value)
+    
+    def cmd_data_A(self, pin, value):
+        self.gui.anpins[pin - 1].setValue(value)
 
-
-    def cmd_data_A(self, anpin, value):
-        #now = time.time()
-        #if now - self._last_time_anpin[anpin] > 0.05:
-        #    invoke_in_main_thread((lambda gui,pin,value:gui.anpins[pin].setValue(value)), self.gui, anpin-1, value)
-        #    self._last_time_anpin[anpin] = now
-        invoke_in_main_thread((lambda gui,pin,value:gui.anpins[pin].setValue(value)), self.gui, anpin-1, value)
-
-    def get(self, param, callback, *args):
+    def _get(self, param, callback, args, in_main_thread):
         path = "/%s/get" % param
         reply_id = self._get_reply_id()
         print "get, param: %s, reply_id: %d" % (param, reply_id)
-        self._reply_callbacks[reply_id] = callback
+        self._reply_callbacks[reply_id] = (callback, in_main_thread)
         self.s.send(self.pedlbrd_address, path, reply_id, *args)
 
+    def get(self, param, callback, *args):
+        """
+        communicate with the core via the get protocol.
+        The callback should not update the UI
+        """
+        self._get(param, callback, args, in_main_thread=False)
+
+    def get_mainthread(self, param, callback, *args):
+        """
+        communicate with the core via the get protocol.
+        The callback can update the UI
+        """
+        self._get(param, callback, args, in_main_thread=True)
+
     def cmd_reply(self, param, replyid, *args):
-        func = self._reply_callbacks.get(replyid)
+        func, in_main_thread = self._reply_callbacks.get(replyid, (None, None))
         if func:
-            func(*args)
+            if in_main_thread:
+                invoke_in_main_thread(func, *args)
+            else:
+                func(*args)
 
     def cmd_notify_calibrate(self):
         invoke_in_main_thread(lambda gui:gui.reset_digital_pins(), self.gui)
@@ -137,10 +136,14 @@ class Slider(QWidget):
         self._pen = pen
         self._coloroff = QColor(240, 240, 240)
         self._coloron  = QColor(80, 10, 255)
+        self._dirty = False
+    
     def minimumSizeHint(self):
         return QSize(10, 10)
+
     def sizeHint(self):
         return QSize(10, 100)
+    
     def paintEvent(self, event):
         p = QPainter()
         p.begin(self)
@@ -153,15 +156,24 @@ class Slider(QWidget):
         p.setBrush(self._coloron)
         p.drawRect(0, y, w, h-y)
         p.end()
+        self._dirty = False
+    
     def setValue(self, value):
-        self._value = value
-        self.repaint()
-
+        if value != self._value:
+            self._dirty = True
+            self._value = value
+        
 class BigCheckBox(QWidget):
     def __init__(self, size, parent=None):
         super(BigCheckBox, self).__init__(parent)
         self._size = size
+        self._dirty = False
         self.value = 0
+        self._pen = pen = QPen()
+        pen.setColor(QColor(50, 50, 50, 50))
+        pen.setWidth(4)
+        self._brushes = (QColor(240, 240, 240), QColor(255, 0, 0))
+
     def minimumSizeHint(self):
         return QSize(self._size, self._size)
     
@@ -171,24 +183,21 @@ class BigCheckBox(QWidget):
         return w * 0.5, h*0.5
 
     def setValue(self, value):
-        self.value = value
-        self.repaint()
+        if value != self.value:
+            self.value = value
+            self._dirty = True
 
     def paintEvent(self, event):
         p = QPainter()
-        pen = QPen()
-        pen.setColor(QColor(50, 50, 50, 50))
-        pen.setWidth(4)
+        pen = self._pen
         p.begin(self)
         cx, cy = self.get_center()
         r = self._size * 0.5
         p.setPen(pen)
-        if self.value == 0:
-            p.setBrush(QColor(240, 240, 240))
-        else:
-            p.setBrush(QColor(255, 0, 0))
+        p.setBrush(self._brushes[self.value>0])
         p.drawRect(cx-r, cy-r, self._size, self._size)
         p.end()
+        self._dirty = False
 
 #######################################################
 #         MAIN             
@@ -196,8 +205,6 @@ class BigCheckBox(QWidget):
 
 class Pedlbrd(QWidget):
     def __init__(self, pedlbrd_address):
-        # Initialize the object as a QWidget and
-        # set its title and minimum width
         super(Pedlbrd, self).__init__()
         self._pedlbrd_address = pedlbrd_address
         self._midithrough_index = None
@@ -206,24 +213,37 @@ class Pedlbrd(QWidget):
         self.osc_thread = OSCThread(self, pedlbrd_address=pedlbrd_address)
         self.osc_thread.start()
         self._last_heartbeat = time.time()
+        self._polltimer_updaterate = 12
         self.setWindowIcon(QIcon('assets/pedlbrd-icon.png'))
-
         # -----------------------------------------------
         self.setup_widgets()
-        self.call_later(1000, self.post_init)
-
+        self.create_polltimer()
+        self.call_later(2000, self.post_init)
+        
+    def create_polltimer(self):
+        self._polltimer = timer = QTimer()
+        timer.timeout.connect(self.poll_action)
+        timer.start(1000 / self._polltimer_updaterate)
+        
     def on_heartbeat(self):
         new_status = "ACTIVE"
         if self.conn_status != new_status:
-            self.update()
+            self.update_status()
         self.set_status("ACTIVE")
         
-    def update(self):
+    def update_status(self):
         # update midichannel
-        def callback(chan):
-            print "callback!", chan
-            self.set_midichannel(chan)
-        self.osc_thread.get("midichannel", callback)
+        #def update_midichannel(chan):
+        #    invoke_in_main_thread(self.set_midichannel, chan)
+        self.osc_thread.get_mainthread("midichannel", lambda chan:self.set_midichannel)
+
+    def poll_action(self):
+        for pin in self.anpins:
+            if pin._dirty:
+                pin.repaint()
+        for pin in self.digpins:
+            if pin._dirty:
+                pin.repaint()
 
     def set_status(self, status):
         self.conn_status = status
@@ -265,26 +285,21 @@ class Pedlbrd(QWidget):
         # Add the form layout to the main VBox layout
         self.layout.addLayout(form_layout)
  
-        # Add stretch to separate the form layout from the button
-        # self.layout.addStretch(1)
- 
         # Create a horizontal box layout to hold the button
         button_box = QHBoxLayout()
  
         # Add stretch to push the button to the far right
         reset_button = QPushButton('Reset', self)
         reset_button.clicked.connect(self.action_reset)
-        console_button = QPushButton('Console', self)
-        console_button.clicked.connect(self.action_console)
-        #hack_button = QPushButton('Hack', self)
-        #hack_button.clicked.connect(self.action_hack)
+        debug_button = QPushButton('Debug', self)
+        debug_button.clicked.connect(self.action_debug)
         
         self.quit_button = QPushButton('Quit', self)
         self.quit_button.clicked.connect(QCoreApplication.instance().quit)
         self.quit_button.clicked.connect(self.action_quit)
 
         # Add it to the button box
-        buttons = [reset_button, console_button]
+        buttons = [reset_button, debug_button]
         for button in buttons:
             button_box.addWidget(button)
         button_box.addStretch(1)
@@ -333,8 +348,8 @@ class Pedlbrd(QWidget):
 
     def post_init(self):
         # init midiports list
-        print "post_init"
         def callback(self):
+            print "post_init:callback", self._midiports
             self.midiports_combo.addItems(self._midiports)
             self.midiports_combo.setMinimumWidth(self.midiports_combo.minimumSizeHint().width())
             self.setFixedSize(self.sizeHint())
@@ -366,19 +381,22 @@ class Pedlbrd(QWidget):
                 p = subprocess.Popen(args=['osascript', 
                     '-e', 'tell app "Terminal"', 
                     '-e', 'do script "{python} {pedltalk}"'.format(python=sys.executable, pedltalk=pedltalkpath),
+                    '-e', 'activate',
                     '-e', 'end tell'])
                 self._subprocs['pedltalk'] = p
-            else:
+            elif sys.platform == 'linux2':
                 print "platform not supported"
 
-    def get_midiports(self, callback=None):
-        def callback0(*ports):
+    def get_midiports(self, notify=None):
+        def callback(*ports):
+            print "get_midiports:callback", ports
             self._midiports = ports
-            if callback is not None:
-                callback(self)
-        self.osc_thread.get('midioutports', callback0)
+            if notify is not None:
+                notify(self)
+        print "getting midioutports, notify set:", (notify is not None)
+        self.osc_thread.get_mainthread('midioutports', callback)
 
-    def action_console(self):
+    def action_debug(self):
         self.osc_thread.sendosc('/openlog', 0)
         self.action_hack()
 
@@ -415,16 +433,12 @@ class Pedlbrd(QWidget):
         }
 
     def run(self):
-        # Show the form
         self.show()
-        # Run the qt application
         qt_app.exec_()
  
 def start(pedlbrd_address=("localhost", 47120)):
-    # Create an instance of the application window and run it
     global qt_app
     qt_app = QApplication(sys.argv)
-    # qt_app.setWindowIcon(QIcon("assets/pedlbrd-icon.png"))
     app = Pedlbrd( pedlbrd_address )
     app.run()
     app.osc_thread.stop()

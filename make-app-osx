@@ -23,8 +23,6 @@ function usage() {
 	echo "      Create a .dmg fast, avoiding building and copying the app"
 	echo "  --fat"
 	echo "      Do not eliminate unused files from app"
-	echo "  --pd-app"
-	echo "      Package the pd control-panel as an app instead of just shipping the patch"
 }
 
 # -------------------------
@@ -38,22 +36,21 @@ COPYAPP=1
 CLEANUP=1
 REMOVE_UNUSED_FILES=0
 PD=1
-PDAPP=0
 
 while test "${1:0:1}" = "-"; do
 	case $1 in
-		--help)
-			usage
-			exit;;
+	    --help)
+		    usage
+		    exit;;
 	    --package)
-			CREATEPACKAGE=1
+		    CREATEPACKAGE=1
 		    shift;;
 	    --skip)
-			BUILDAPP=0
-			CREATEPACKAGE=1
-			shift;;
+		    BUILDAPP=0
+		    CREATEPACKAGE=1
+		    shift;;
 		--debug-dmg)
-			BUILDAPP=0
+		    BUILDAPP=0
 			CREATEPACKAGE=1
 			COPYAPP=0
 			shift;;
@@ -63,10 +60,7 @@ while test "${1:0:1}" = "-"; do
 		--no-midimonitor)
 			MIDIMONITOR=0
 			shift;;
-		--pd-app)
-			PDAPP=1
-			shift;;
-		--fat)
+      		--fat)
 			REMOVE_UNUSED_FILES=0
 			shift;;
 	esac
@@ -87,7 +81,6 @@ showoption $CREATEPACKAGE "create dmg"
 showoption $CLEANUP       "clean garbage"
 showoption $REMOVE_UNUSED_FILES "remove unused files"
 showoption $PD "include PD control panel"
-showoption $PDAPP "package PD control panel as App"
 echo "---------------------------"
 echo
 
@@ -114,9 +107,6 @@ if [ $BUILDAPP == 1 ]; then
 		mkdir -p $BUILDFOLDER/extra
 		mkdir -p $BUILDFOLDER/extra/pd
 		cp extra/pd/*.pd $BUILDFOLDER/extra/pd
-		if [ $PDAPP == 1 ]; then
-			cp -r extra/pd/*.app $BUILDFOLDER/extra/pd
-		fi
 	fi
 
 	cp -f $ENTRY.py $BUILDFOLDER
@@ -130,7 +120,6 @@ if [ $BUILDAPP == 1 ]; then
 		echo "<< removing unused files >>"
 		rm -fr $BUILDFOLDER/dist/$ENTRY.app/Contents/Frameworks/Tcl.framework/Versions/8.5/Resources/English.lproj/ActiveTcl-8.5
 		rm -fr $BUILDFOLDER/dist/$ENTRY.app/Contents/Resources/lib/python2.7/lib-dynload/Cython
-		rm -fr $BUILDFOLDER/dist/$ENTRY.app/Contents/Resources/lib/python2.7/lib-dynload/PySide
 	fi
 	
 	echo "The app is at $BUILDFOLDER/dist/$ENTRY.app"
@@ -168,7 +157,7 @@ if [ $CREATEPACKAGE == 1 ]; then
 	echo "   * creating dmg"
 	extra/OSX/yoursway-create-dmg/create-dmg \
 		--window-size $(( $APPFOLDERX + $ICONSIZE + $X0 )) $(( $ICONSIZE * 3 )) \
-		--volname $ENTRY --background extra/images/background.png --icon-size $ICONSIZE \
+		--volname $ENTRY --icon-size $ICONSIZE \
 		--icon $ENTRY.app $X0 $Y0 --app-drop-link $APPFOLDERX $Y0 \
 		--icon MIDI\ Monitor.app $(($X0 + $ICONSIZE + $MARGINX)) $Y0 \
 		--icon README.txt $X0 $(( $Y0 + $ICONSIZE + $MARGINY)) \
