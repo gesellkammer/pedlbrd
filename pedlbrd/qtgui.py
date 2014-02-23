@@ -92,16 +92,7 @@ class OSCThread(QThread):
 
     def cmd_data_D(self, pin, value):
         self.gui.digpins[pin-1].setValue(value)
-        #invoke_in_main_thread((lambda gui, pin, value:gui.digpins[pin].setValue(value)), self.gui, digpin-1, value)
-
-    #def cmd_data_A(self, anpin, value):
-    #    now = time.time()
-    #    pin = anpin - 1
-    #    if now - self._last_time_anpin[pin] > 0.05 or abs(value - self._analog_value[pin]) > 0.08:
-    #        self._analog_value[pin] = value
-    #        self._last_time_anpin[pin] = now
-    #        invoke_in_main_thread((lambda gui,pin,value:gui.anpins[pin].setValue(value)), self.gui, pin, value)
-
+    
     def cmd_data_A(self, pin, value):
         self.gui.anpins[pin - 1].setValue(value)
 
@@ -350,6 +341,7 @@ class Pedlbrd(QWidget):
     def post_init(self):
         # init midiports list
         def callback(self):
+            print "callback!", self._midiports
             self.midiports_combo.addItems(self._midiports)
             self.midiports_combo.setMinimumWidth(self.midiports_combo.minimumSizeHint().width())
             self.setFixedSize(self.sizeHint())
