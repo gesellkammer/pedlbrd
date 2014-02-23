@@ -159,10 +159,10 @@ class Slider(QWidget):
         self._dirty = False
     
     def setValue(self, value):
-        self._value = value
-        self._dirty = True
-        # self.repaint()
-
+        if value != self._value:
+            self._dirty = True
+            self._value = value
+        
 class BigCheckBox(QWidget):
     def __init__(self, size, parent=None):
         super(BigCheckBox, self).__init__(parent)
@@ -183,8 +183,9 @@ class BigCheckBox(QWidget):
         return w * 0.5, h*0.5
 
     def setValue(self, value):
-        self.value = value
-        self._dirty = True
+        if value != self.value:
+            self.value = value
+            self._dirty = True
 
     def paintEvent(self, event):
         p = QPainter()

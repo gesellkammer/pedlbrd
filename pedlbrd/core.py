@@ -1357,6 +1357,7 @@ class Pedlbrd(object):
         """
         reset state, doesn't change config
         """
+        self.calibrate_digital()
         self.reset_state()
         self.logger.debug('reset state!')
 
