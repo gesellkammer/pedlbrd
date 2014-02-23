@@ -50,6 +50,7 @@ class OSCThread(QThread):
         self._reply_callbacks = {}
         self._last_replyid = 0
         self._last_time_anpin = [0, 0, 0, 0]
+        self._analog_value = [0, 0, 0, 0]
 
     def register_osc_methods(self):
         cmds = [(a, getattr(self, a)) for a in dir(self) if a.startswith('cmd_')]
@@ -92,8 +93,12 @@ class OSCThread(QThread):
         invoke_in_main_thread((lambda gui, pin, value:gui.digpins[pin].setValue(value)), self.gui, digpin-1, value)
 
     def cmd_data_A(self, anpin, value):
-        invoke_in_main_thread((lambda gui,pin,value:gui.anpins[pin].setValue(value)), self.gui, anpin-1, value)
-
+        now = time.time()
+        pin = anpin - 1
+        if now - self._last_time_anpin[pin] > 0.05 or abs(value - self._analog_value[pin]) > 0.08:
+            self._analog_value[pin] = value
+            self._last_time_anpin[pin] = now
+            invoke_in_main_thread((lambda gui,pin,value:gui.anpins[pin].setValue(value)), self.gui, pin, value)
 
     def get(self, param, callback, *args):
         path = "/%s/get" % param
