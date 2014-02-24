@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# pyinstaller --distpath=distlinux pedlbrd.py
-pyinstaller pedlbrd.spec
+# pyinstaller pedlbrd.py
+pyinstaller --distpath=distlinux pedlbrd-custom.spec
+tar -zcvf distlinux/pedlbrd-amd64.tgz distlinux/pedlbrd
 sudo cp -r distlinux/pedlbrd /opt
 cp extra/pedlbrd.desktop ~/.local/share/applications
