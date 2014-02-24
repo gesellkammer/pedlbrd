@@ -1,4 +1,4 @@
-![icon](assets/pedlbrd-icon.png)
+![icon]
 
 # PEDLBRD
 
@@ -56,14 +56,13 @@ TODO
 
 ## OSC API
 
-By default, the device sends data to the port 47121 on the localhost. To register other clients, send:
+By default, the device sends data to the port 47121 on the localhost.
 
-    /registerdata
-        Send this message to receive data comming from the device  
-        Send /signout when you are done
+The OSC API is documented [here][oscapi]
 
 For more information on the OSC API, see pedlbrd/protocols.txt
 
 
-
-[Downloads]: #
+[icon]: assets/pedlbrd-icon-128.png "Pedlbrd" style="margin-left:auto; margin-right:auto"
+[oscapi]: pedlbrd/protocols.md
+[Downloads]: https://github.com/gesellkammer/pedlbrd/tree/master/binaries
