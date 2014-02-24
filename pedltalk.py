@@ -1,4 +1,4 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python
 import os
 import sys
 import liblo
@@ -139,11 +139,11 @@ def usage():
       will listen to port 9999, excluding all messages matching /debug* and /info
       From this same port you can send messages with the syntax:
 
-      pedl> /path foo 3.14
+      $ /path foo 3.14
 
       or if you need to specify the address:
 
-      pedl> hostname:port /path foo 3.14
+      $ hostname:port /path foo 3.14
 
     """.format(progname=os.path.split(sys.argv[0])[1])
     sys.exit()
@@ -204,7 +204,14 @@ def quit_handler(path, args, types, src):
         sources.remove(addr)
     except KeyError:
         pass
-    print "\n>> Device at %s:%d just quit" % addr
+    s = "Device (%s:%d) closed" % addr
+    l = "#" * (len(s) + 6)
+    print
+    print
+    print l
+    print "#  %s  #" % s
+    print l
+
 
 def println_handler(path, args, types, src):
     for s in args:
@@ -397,7 +404,6 @@ Enter 'quit' or press CTRL-D to exit
         readline.set_completer_delims(' \t\n`!@#$^&*()=+[{]}|;:\'",<>?')
         readline.parse_and_bind("tab: complete")
         readline.parse_and_bind("bind ^I rl_complete")
-        print "readline ready!"
     else:
         print "could not import readline. TAB support is disabled"
         COMPLETER = None
@@ -409,7 +415,7 @@ Enter 'quit' or press CTRL-D to exit
             print
             options = ["autoget=%s" % ('ON' if autoget else 'OFF')]
             optionstr = "[%s]" % (", ".join(options))
-            prompt = "{optionstr} pedl> ".format(optionstr=optionstr)
+            prompt = "{optionstr} $ ".format(optionstr=optionstr)
             cmd = raw_input(prompt)
             cmd = cmd.strip()
             if cmd == "quit" or cmd=="q":
