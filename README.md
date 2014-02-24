@@ -1,14 +1,10 @@
-.. image:: assets/pedlbrd-icon.png
-	:align: center
+![icon](assets/pedlbrd-icon.png)
 
-=======
-PEDLBRD
-=======
+# PEDLBRD
 
 An Arduino based sensor interface.
 
-Features
---------
+## Features
 
 * connect all kinds of MIDI pedals (expression, switch, volume)
 * connect resistive sensors (force, light, any potentiometer)
@@ -21,22 +17,18 @@ Features
 * driver works in all three major platforms: OSX, Linux and Windows
 * Tested with OSX 10.6.8, 10.8 and 10.9, Ubuntu 12.04 and 13.10, Windows 7
 
-.. image:: extra/images/pedlbrd-scrn1.png
-	:align: left
+![scrn1](extra/images/pedlbrd-scrn1.png)
+![scrn2](extra/images/pedlbrd-screen1-osx.png)
 
-.. image:: extra/images/pedlbrd-screen1-osx.png
-	:align: right
 
-Install
--------
+## Install
 
-* Go to Downloads_ and get the package for your platform. 
+* Go to [Downloads] and get the package for your platform. 
 * Extract the app, open it.
 * Connect the device. 
 
 
-Build Dependencies
-------------------
+## Build Dependencies
 
 * python >= 2.7
 * Qt 4.7
@@ -48,8 +40,7 @@ Build Dependencies
 * notifydict
 * virtualenv
 
-Build Steps
------------
+## Build Steps
 
 1. Create a virtualenv in python
 2. Install all your dependencies
@@ -60,15 +51,12 @@ Build Steps
     * Linux: make-app-linux
     * Windows: python make-app-windows.py
 
-Usage
------
-
+## Usage
 TODO
 
-OSC API
--------
+## OSC API
 
-By default, the device sends data to the port 47121 on the localhost. To register other clients, see:
+By default, the device sends data to the port 47121 on the localhost. To register other clients, send:
 
     /registerdata
         Send this message to receive data comming from the device  
@@ -76,5 +64,6 @@ By default, the device sends data to the port 47121 on the localhost. To registe
 
 For more information on the OSC API, see pedlbrd/protocols.txt
 
-.. ---------------------------------------------------------------------------------
-.. _Downloads: https://bitbucket.org/emoguillansky/pedlbrd/downloads
+
+
+[Downloads]: #
