@@ -35,9 +35,10 @@ All paths ending with /get use the **GET** protocol
 
 The client can tell the server where to send to reply, for the cases where the client has no control of the OSC port from which it sends the message.
 
-/path/get ID [arg1 arg2 ...]
+/path/get `replyID` `[arg1 arg2 ...]`
 
-    ID | an int: 
+    replyID:
+	 
             will send {/reply path ID value1 ...} to source_address
          a string: 
             of type addr/ID will send {/reply ID value1 ...} to addr
@@ -58,9 +59,10 @@ The client can tell the server where to send to reply, for the cases where the c
 
     client: 192.168.0.2:47120 /midiports/get 34
     The reply will be the same
+
 ### Register a client
 
-/registedata `[host]` `[port]`
+/registerdata `[host]` `[port]`
 
     if no args:
         register the address where the msg came
@@ -168,7 +170,7 @@ The client can tell the server where to send to reply, for the cases where the c
 
         This is sent for each analog pin
 
-/analogminval/set index value
+/analogminval/set `index` `value`
 
     Set the minimum raw value for analog input. autorange will be disabled
 
