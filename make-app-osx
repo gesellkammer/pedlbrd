@@ -13,9 +13,11 @@ function usage() {
 	echo "Options:"
 	echo "  --package"
 	echo "      Create a .dmg for distribution" 
+	echo "  --dmg"
+	echo "      Create a .dmg of only the app"
 	echo "  --skip"
 	echo "      Skip building the app. Implies --package"
-	echo "  --no-midimonitor"
+	echo "  --midimonitor"
 	echo "      Do not include MIDI Monitor in the built DMG"
 	echo "  --dirty"
 	echo "      Dont clean up after building .dmg"
@@ -31,7 +33,7 @@ function usage() {
 CREATEPACKAGE=0
 OPENAPPFOLDER=1
 BUILDAPP=1
-MIDIMONITOR=1
+MIDIMONITOR=0
 COPYAPP=1
 CLEANUP=1
 REMOVE_UNUSED_FILES=0
@@ -44,7 +46,14 @@ while test "${1:0:1}" = "-"; do
 		    exit;;
 	    --package)
 		    CREATEPACKAGE=1
+		    SIMPLEDMG=0
+		    OPENAPPFOLDER=0
 		    shift;;
+		--dmg)
+			SIMPLEDMG=1
+			CREATEPACKAGE=0
+			OPENAPPFOLDER=0
+			shift;;
 	    --skip)
 		    BUILDAPP=0
 		    CREATEPACKAGE=1
@@ -57,10 +66,10 @@ while test "${1:0:1}" = "-"; do
 		--dirty)
 			CLEANUP=0
 			shift;;
-		--no-midimonitor)
-			MIDIMONITOR=0
+		--midimonitor)
+			MIDIMONITOR=1
 			shift;;
-      		--fat)
+      	--fat)
 			REMOVE_UNUSED_FILES=0
 			shift;;
 	esac
@@ -78,6 +87,7 @@ function showoption() {
 echo "---------------------------"
 showoption $BUILDAPP      "build app"
 showoption $CREATEPACKAGE "create dmg"
+showoption $SIMPLEDMG     "pack the app in a dmg file, no fancy packaging"
 showoption $CLEANUP       "clean garbage"
 showoption $REMOVE_UNUSED_FILES "remove unused files"
 showoption $PD "include PD control panel"
@@ -132,6 +142,16 @@ fi
 # -----------------
 #    Create DMG
 # -----------------
+
+if [ $SIMPLEDMG == 1 ]; then
+	rm -f $PACKAGE
+	mkdir -p $BUILDFOLDER/package
+	if [ $COPYAPP == 1 ] ; then
+		echo "   * copying app"
+		cp -r $BUILDFOLDER/dist/$ENTRY.app $BUILDFOLDER/package
+		hdiutil create -volname $ENTRY -srcfolder $BUILDFOLDER/package -ov -format UDZO $ENTRY.dmg
+	fi
+fi
 
 if [ $CREATEPACKAGE == 1 ]; then
 	X0=32
