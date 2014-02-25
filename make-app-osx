@@ -149,7 +149,11 @@ if [ $SIMPLEDMG == 1 ]; then
 	if [ $COPYAPP == 1 ] ; then
 		echo "   * copying app"
 		cp -r $BUILDFOLDER/dist/$ENTRY.app $BUILDFOLDER/package
+		echo "creating DMG"
 		hdiutil create -volname $ENTRY -srcfolder $BUILDFOLDER/package -ov -format UDZO $ENTRY.dmg
+		echo "moving DMG to binaries"
+		rm -f binaries/$ENTRY.dmg
+		mv $ENTRY.dmg binaries/$ENTRY.dmg
 	fi
 fi
 

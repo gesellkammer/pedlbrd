@@ -7,18 +7,6 @@ import logging
 
 global qt_app
 
-# class Log(object):
-#     def __init__(self):
-#         self.path = "pedlbrd-gui.log"
-#         logging.basicConfig(filename=self.path, level=logging.DEBUG)
-
-#         path = {
-#             'linux2':'/var/log/pedlbrd-gui.log',
-#             'darwin':'~/.config/pedlbrd/pedlbrd-gui.log'
-#         }.get(sys.platform)
-#         self.path = path
-#         loggin 
-
 LOGPATH = '~/.log/pedlbrd-gui.log'
 
 LOGPATH = os.path.expanduser(LOGPATH)
@@ -426,15 +414,12 @@ class Pedlbrd(QWidget):
     def launch_debugging_console(self):
         pedltalk_proc = self._subprocs.get('pedltalk')
         if pedltalk_proc is None or pedltalk_proc.poll() is not None:  # either first call, or subprocess finished
-            currentdir = os.path.split(os.path.realpath(__file__))[0]
 
-            pedltalkpath = os.path.realpath(os.path.join(currentdir, "../pedltalk.py"))
-            if not os.path.exists(pedltalkpath):
-                logging.error("pedltalk not found! Searched path: %s" % pedltalkpath)
-                return
-            else:
-                logging.debug("pedltalk found!")
             if sys.platform == 'darwin':
+                pedltalkpath = os.path.realpath("pedltalk.py")
+                if not os.path.exists(pedltalkpath):
+                    logging.error("pedltalk not found! Searched path: %s" % pedltalkpath)
+                    return
                 p = subprocess.Popen(args=['osascript', 
                     '-e', 'tell app "Terminal"', 
                     '-e', 'do script "{python} {pedltalk}"'.format(python=sys.executable, pedltalk=pedltalkpath),
@@ -442,6 +427,11 @@ class Pedlbrd(QWidget):
                     '-e', 'end tell'])
                 self._subprocs['pedltalk'] = p
             elif sys.platform == 'linux2': 
+                currentdir = os.path.split(os.path.realpath(__file__))[0]
+                pedltalkpath = os.path.realpath(os.path.join(currentdir, "../pedltalk.py"))
+                if not os.path.exists(pedltalkpath):
+                    logging.error("pedltalk not found! Searched path: %s" % pedltalkpath)
+                    return
                 p = subprocess.Popen(args=["xterm", "-e", "python", pedltalkpath])
                 self._subprocs['pedltalk'] = p
                     
