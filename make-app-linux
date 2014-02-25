@@ -1,5 +1,36 @@
 #!/usr/bin/env bash
-# pyinstaller --distpath=distlinux pedlbrd.py
-pyinstaller pedlbrd.spec
+
+# The first time you need to generate the .spec file by calling
+# $ pyinstaller pedlbrd.py
+
+rm -fr distlinux/pedlbrd
+pyinstaller --distpath=distlinux pedlbrd-custom.spec
 sudo cp -r distlinux/pedlbrd /opt
 cp extra/pedlbrd.desktop ~/.local/share/applications
+
+CREATEPACKAGE=0
+
+function usage() {
+	echo "Usage: $(basename $0) [options]"
+	echo "Options:"
+	echo "  --package"
+	echo "      Pack app as tar.gz" 
+}
+
+while test "${1:0:1}" = "-"; do
+	case $1 in
+	    --help)
+		    usage
+		    exit;;
+	    --package)
+		    CREATEPACKAGE=1
+		    shift;;
+	  esac
+done
+
+if [ $CREATEPACKAGE == 1 ]; then
+	tar -zcvf distlinux/pedlbrd-amd64.tgz distlinux/pedlbrd
+fi
+
+echo "pedlbrd was installed in /opt"
+echo ".desktop file was installed in ~/.local/share/applications"

@@ -3,8 +3,31 @@ from  PySide.QtGui import *
 import sys, os, time, subprocess
 import liblo
 import Queue
+import logging
 
 global qt_app
+
+# class Log(object):
+#     def __init__(self):
+#         self.path = "pedlbrd-gui.log"
+#         logging.basicConfig(filename=self.path, level=logging.DEBUG)
+
+#         path = {
+#             'linux2':'/var/log/pedlbrd-gui.log',
+#             'darwin':'~/.config/pedlbrd/pedlbrd-gui.log'
+#         }.get(sys.platform)
+#         self.path = path
+#         loggin 
+
+LOGPATH = '~/.log/pedlbrd-gui.log'
+
+LOGPATH = os.path.expanduser(LOGPATH)
+LOGDIR = os.path.split(LOGPATH)[0]
+
+if not os.path.exists(LOGDIR):
+    os.mkdir(LOGDIR)
+
+logging.basicConfig(filename=LOGPATH,level=logging.DEBUG)
 
 ## /////////// HELPERS ////////////
 
@@ -91,7 +114,7 @@ class OSCThread(QThread):
     def _get(self, param, callback, args, in_main_thread):
         path = "/%s/get" % param
         reply_id = self._get_reply_id()
-        print "get, param: %s, reply_id: %d" % (param, reply_id)
+        logging.debug("get, param: %s, reply_id: %d" % (param, reply_id))
         self._reply_callbacks[reply_id] = (callback, in_main_thread)
         self.s.send(self.pedlbrd_address, path, reply_id, *args)
 
@@ -118,7 +141,7 @@ class OSCThread(QThread):
                 func(*args)
 
     def cmd_notify_calibrate(self):
-        invoke_in_main_thread(lambda gui:gui.reset_digital_pins(), self.gui)
+        invoke_in_main_thread(lambda gui:gui.calibrated(), self.gui)
 
     def _get_reply_id(self):
         self._last_replyid = (self._last_replyid + 1) % 999999
@@ -215,6 +238,8 @@ class Pedlbrd(QWidget):
         self._last_heartbeat = time.time()
         self._polltimer_updaterate = 12
         self.setWindowIcon(QIcon('assets/pedlbrd-icon.png'))
+        self._midiports = []
+
         # -----------------------------------------------
         self.setup_widgets()
         self.create_polltimer()
@@ -224,6 +249,10 @@ class Pedlbrd(QWidget):
         self._polltimer = timer = QTimer()
         timer.timeout.connect(self.poll_action)
         timer.start(1000 / self._polltimer_updaterate)
+
+    def calibrated(self):
+        self.reset_digital_pins()
+        self.update_status()
         
     def on_heartbeat(self):
         new_status = "ACTIVE"
@@ -232,10 +261,8 @@ class Pedlbrd(QWidget):
         self.set_status("ACTIVE")
         
     def update_status(self):
-        # update midichannel
-        #def update_midichannel(chan):
-        #    invoke_in_main_thread(self.set_midichannel, chan)
         self.osc_thread.get_mainthread("midichannel", lambda chan:self.set_midichannel)
+        self.fetch_midiports()
 
     def poll_action(self):
         for pin in self.anpins:
@@ -347,12 +374,37 @@ class Pedlbrd(QWidget):
         self.layout.addLayout(button_box)
 
     def post_init(self):
-        # init midiports list
-        def callback(self):
-            print "post_init:callback", self._midiports
-            self.midiports_combo.addItems(self._midiports)
-            self.midiports_combo.setMinimumWidth(self.midiports_combo.minimumSizeHint().width())
-            self.setFixedSize(self.sizeHint())
+        self.fetch_midiports()
+        
+    def fetch_midiports(self):
+        def callback(ports):
+            logging.debug("fetch_midiports: got ports %s" % str(ports))
+            if ports != self._midiports:
+                logging.debug("midiports changed")
+                # Remove old items in combobox
+                numitems = self.midiports_combo.count()
+                if numitems > 1:
+                    for i in range(numitems-1):
+                        self.midiports_combo.removeItem(numitems - 1 - i)
+                self.midiports_combo.addItems(ports)
+                self.midiports_combo.setMinimumWidth(self.midiports_combo.minimumSizeHint().width())
+                self.setFixedSize(self.sizeHint())
+                if self._midithrough_index > 0:
+                    # midiports changed and there was a port selected. Will try to 
+                    # find its index and set it as the new selection
+                    midiport_name = self._midiports[self._midithrough_index]
+                    logging.debug("ports changed and selection was %s" % midiport_name)
+                    if midiport_name in ports:
+                        newindex = ports.index(midiport_name) + 1 # the +1 is to account for the "No Midithrough" ("------") item
+                        logging.debug("old midiport still present at index %d" % newindex)
+                        self.midithrough_set(newindex)
+                        self.midiports_combo.setCurrentIndex(newindex)
+                    else:
+                        logging.debug("midiport %s not present any more. Resetting midithrough" % midiport_name)
+                        self.midithrough_set(0)
+                self._midiports = ports
+            else:
+                logging.debug("midiports did not change. current ports are: %s" % str(self._midiports))                
         self.get_midiports(callback)
 
     def set_digitalpin(self, pin, value):
@@ -365,18 +417,23 @@ class Pedlbrd(QWidget):
     def action_reset(self):
         self.osc_thread.sendosc('/resetstate')
         self.reset_digital_pins()
+        self.fetch_midiports()
         
     def reset_digital_pins(self):
         for digpin in self.digpins:
             digpin.setValue(0)
 
-    def action_hack(self):
+    def launch_debugging_console(self):
         pedltalk_proc = self._subprocs.get('pedltalk')
         if pedltalk_proc is None or pedltalk_proc.poll() is not None:  # either first call, or subprocess finished
-            pedltalkpath = os.path.abspath("pedltalk.py")
+            currentdir = os.path.split(os.path.realpath(__file__))[0]
+
+            pedltalkpath = os.path.realpath(os.path.join(currentdir, "../pedltalk.py"))
             if not os.path.exists(pedltalkpath):
-                print "pedltalk.py not found"
+                logging.error("pedltalk not found! Searched path: %s" % pedltalkpath)
                 return
+            else:
+                logging.debug("pedltalk found!")
             if sys.platform == 'darwin':
                 p = subprocess.Popen(args=['osascript', 
                     '-e', 'tell app "Terminal"', 
@@ -385,23 +442,33 @@ class Pedlbrd(QWidget):
                     '-e', 'end tell'])
                 self._subprocs['pedltalk'] = p
             elif sys.platform == 'linux2': 
-                p = subprocess.Popen(args=[ "xterm", "-e", "python", "pedltalk.py" ])
+                p = subprocess.Popen(args=["xterm", "-e", "python", pedltalkpath])
                 self._subprocs['pedltalk'] = p
+                    
                 
     def get_midiports(self, notify=None):
         def callback(*ports):
-            print "get_midiports:callback", ports
-            self._midiports = ports
+            logging.debug("get_midiports:callback. ports: %s" % str(ports))
             if notify is not None:
-                notify(self)
-        print "getting midioutports, notify set:", (notify is not None)
-        self.osc_thread.get_mainthread('midioutports', callback)
+                invoke_in_main_thread(notify, ports)
+        logging.debug("getting midioutports, notify set: %s" % str(notify is not None))
+        self.osc_thread.get('midioutports', callback)
 
     def action_debug(self):
         self.osc_thread.sendosc('/openlog', 0)
-        self.action_hack()
+        self.open_gui_log()
+        self.launch_debugging_console()
+        
+    def open_gui_log(self):
+        if sys.platform == 'darwin':
+            os.system("open -a Console %s" % LOGPATH)
+        elif sys.platform == 'linux2':
+            os.system("xdg-open %s" % LOGPATH)    
 
     def action_midithrough(self, index):
+        self.midithrough_set(index)
+
+    def midithrough_set(self, index):
         if self._midithrough_index is not None:
             if index == 0:
                 self.osc_thread.sendosc('/midithrough/set', self._midithrough_index, 0)
