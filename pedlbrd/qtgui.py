@@ -141,7 +141,7 @@ class OSCThread(QThread):
                 func(*args)
 
     def cmd_notify_calibrate(self):
-        invoke_in_main_thread(lambda gui:gui.reset_digital_pins(), self.gui)
+        invoke_in_main_thread(lambda gui:gui.calibrated(), self.gui)
 
     def _get_reply_id(self):
         self._last_replyid = (self._last_replyid + 1) % 999999
@@ -238,6 +238,8 @@ class Pedlbrd(QWidget):
         self._last_heartbeat = time.time()
         self._polltimer_updaterate = 12
         self.setWindowIcon(QIcon('assets/pedlbrd-icon.png'))
+        self._midiports = []
+
         # -----------------------------------------------
         self.setup_widgets()
         self.create_polltimer()
@@ -247,6 +249,10 @@ class Pedlbrd(QWidget):
         self._polltimer = timer = QTimer()
         timer.timeout.connect(self.poll_action)
         timer.start(1000 / self._polltimer_updaterate)
+
+    def calibrated(self):
+        self.reset_digital_pins()
+        self.update_status()
         
     def on_heartbeat(self):
         new_status = "ACTIVE"
@@ -255,10 +261,8 @@ class Pedlbrd(QWidget):
         self.set_status("ACTIVE")
         
     def update_status(self):
-        # update midichannel
-        #def update_midichannel(chan):
-        #    invoke_in_main_thread(self.set_midichannel, chan)
         self.osc_thread.get_mainthread("midichannel", lambda chan:self.set_midichannel)
+        self.fetch_midiports()
 
     def poll_action(self):
         for pin in self.anpins:
@@ -370,12 +374,37 @@ class Pedlbrd(QWidget):
         self.layout.addLayout(button_box)
 
     def post_init(self):
-        # init midiports list
-        def callback(self):
-            logging.debug("post_init:callback: %s" % str(self._midiports))
-            self.midiports_combo.addItems(self._midiports)
-            self.midiports_combo.setMinimumWidth(self.midiports_combo.minimumSizeHint().width())
-            self.setFixedSize(self.sizeHint())
+        self.fetch_midiports()
+        
+    def fetch_midiports(self):
+        def callback(ports):
+            logging.debug("fetch_midiports: got ports %s" % str(ports))
+            if ports != self._midiports:
+                logging.debug("midiports changed")
+                # Remove old items in combobox
+                numitems = self.midiports_combo.count()
+                if numitems > 1:
+                    for i in range(numitems-1):
+                        self.midiports_combo.removeItem(numitems - 1 - i)
+                self.midiports_combo.addItems(ports)
+                self.midiports_combo.setMinimumWidth(self.midiports_combo.minimumSizeHint().width())
+                self.setFixedSize(self.sizeHint())
+                if self._midithrough_index > 0:
+                    # midiports changed and there was a port selected. Will try to 
+                    # find its index and set it as the new selection
+                    midiport_name = self._midiports[self._midithrough_index]
+                    logging.debug("ports changed and selection was %s" % midiport_name)
+                    if midiport_name in ports:
+                        newindex = ports.index(midiport_name) + 1 # the +1 is to account for the "No Midithrough" ("------") item
+                        logging.debug("old midiport still present at index %d" % newindex)
+                        self.midithrough_set(newindex)
+                        self.midiports_combo.setCurrentIndex(newindex)
+                    else:
+                        logging.debug("midiport %s not present any more. Resetting midithrough" % midiport_name)
+                        self.midithrough_set(0)
+                self._midiports = ports
+            else:
+                logging.debug("midiports did not change. current ports are: %s" % str(self._midiports))                
         self.get_midiports(callback)
 
     def set_digitalpin(self, pin, value):
@@ -388,6 +417,7 @@ class Pedlbrd(QWidget):
     def action_reset(self):
         self.osc_thread.sendosc('/resetstate')
         self.reset_digital_pins()
+        self.fetch_midiports()
         
     def reset_digital_pins(self):
         for digpin in self.digpins:
@@ -419,11 +449,10 @@ class Pedlbrd(QWidget):
     def get_midiports(self, notify=None):
         def callback(*ports):
             logging.debug("get_midiports:callback. ports: %s" % str(ports))
-            self._midiports = ports
             if notify is not None:
-                notify(self)
+                invoke_in_main_thread(notify, ports)
         logging.debug("getting midioutports, notify set: %s" % str(notify is not None))
-        self.osc_thread.get_mainthread('midioutports', callback)
+        self.osc_thread.get('midioutports', callback)
 
     def action_debug(self):
         self.osc_thread.sendosc('/openlog', 0)
@@ -437,6 +466,9 @@ class Pedlbrd(QWidget):
             os.system("xdg-open %s" % LOGPATH)    
 
     def action_midithrough(self, index):
+        self.midithrough_set(index)
+
+    def midithrough_set(self, index):
         if self._midithrough_index is not None:
             if index == 0:
                 self.osc_thread.sendosc('/midithrough/set', self._midithrough_index, 0)
