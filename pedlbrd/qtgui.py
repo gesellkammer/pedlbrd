@@ -3,8 +3,31 @@ from  PySide.QtGui import *
 import sys, os, time, subprocess
 import liblo
 import Queue
+import logging
 
 global qt_app
+
+# class Log(object):
+#     def __init__(self):
+#         self.path = "pedlbrd-gui.log"
+#         logging.basicConfig(filename=self.path, level=logging.DEBUG)
+
+#         path = {
+#             'linux2':'/var/log/pedlbrd-gui.log',
+#             'darwin':'~/.config/pedlbrd/pedlbrd-gui.log'
+#         }.get(sys.platform)
+#         self.path = path
+#         loggin 
+
+LOGPATH = '~/.log/pedlbrd-gui.log'
+
+LOGPATH = os.path.expanduser(LOGPATH)
+LOGDIR = os.path.split(LOGPATH)[0]
+
+if not os.path.exists(LOGDIR):
+    os.mkdir(LOGDIR)
+
+logging.basicConfig(filename=LOGPATH,level=logging.DEBUG)
 
 ## /////////// HELPERS ////////////
 
@@ -91,7 +114,7 @@ class OSCThread(QThread):
     def _get(self, param, callback, args, in_main_thread):
         path = "/%s/get" % param
         reply_id = self._get_reply_id()
-        print "get, param: %s, reply_id: %d" % (param, reply_id)
+        logging.debug("get, param: %s, reply_id: %d" % (param, reply_id))
         self._reply_callbacks[reply_id] = (callback, in_main_thread)
         self.s.send(self.pedlbrd_address, path, reply_id, *args)
 
@@ -349,7 +372,7 @@ class Pedlbrd(QWidget):
     def post_init(self):
         # init midiports list
         def callback(self):
-            print "post_init:callback", self._midiports
+            logging.debug("post_init:callback: %s" % str(self._midiports))
             self.midiports_combo.addItems(self._midiports)
             self.midiports_combo.setMinimumWidth(self.midiports_combo.minimumSizeHint().width())
             self.setFixedSize(self.sizeHint())
@@ -370,13 +393,17 @@ class Pedlbrd(QWidget):
         for digpin in self.digpins:
             digpin.setValue(0)
 
-    def action_hack(self):
+    def launch_debugging_console(self):
         pedltalk_proc = self._subprocs.get('pedltalk')
         if pedltalk_proc is None or pedltalk_proc.poll() is not None:  # either first call, or subprocess finished
-            pedltalkpath = os.path.abspath("pedltalk.py")
+            currentdir = os.path.split(os.path.realpath(__file__))[0]
+
+            pedltalkpath = os.path.realpath(os.path.join(currentdir, "../pedltalk.py"))
             if not os.path.exists(pedltalkpath):
-                print "pedltalk.py not found"
+                logging.error("pedltalk not found! Searched path: %s" % pedltalkpath)
                 return
+            else:
+                logging.debug("pedltalk found!")
             if sys.platform == 'darwin':
                 p = subprocess.Popen(args=['osascript', 
                     '-e', 'tell app "Terminal"', 
@@ -385,21 +412,29 @@ class Pedlbrd(QWidget):
                     '-e', 'end tell'])
                 self._subprocs['pedltalk'] = p
             elif sys.platform == 'linux2': 
-                p = subprocess.Popen(args=[ "xterm", "-e", "python", "pedltalk.py" ])
+                p = subprocess.Popen(args=["xterm", "-e", "python", pedltalkpath])
                 self._subprocs['pedltalk'] = p
+                    
                 
     def get_midiports(self, notify=None):
         def callback(*ports):
-            print "get_midiports:callback", ports
+            logging.debug("get_midiports:callback. ports: %s" % str(ports))
             self._midiports = ports
             if notify is not None:
                 notify(self)
-        print "getting midioutports, notify set:", (notify is not None)
+        logging.debug("getting midioutports, notify set: %s" % str(notify is not None))
         self.osc_thread.get_mainthread('midioutports', callback)
 
     def action_debug(self):
         self.osc_thread.sendosc('/openlog', 0)
-        self.action_hack()
+        self.open_gui_log()
+        self.launch_debugging_console()
+        
+    def open_gui_log(self):
+        if sys.platform == 'darwin':
+            os.system("open -a Console %s" % LOGPATH)
+        elif sys.platform == 'linux2':
+            os.system("xdg-open %s" % LOGPATH)    
 
     def action_midithrough(self, index):
         if self._midithrough_index is not None:

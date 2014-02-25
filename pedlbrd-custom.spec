@@ -31,7 +31,11 @@ exe = EXE(pyz,
           upx=True,
           console=True )
 
-datafiles = Datafiles('assets/pedlbrd-icon.png', 'extra/pedlbrd.desktop')
+datafiles = Datafiles(
+  'assets/pedlbrd-icon.png', 
+  'extra/pedlbrd.desktop',
+  'pedltalk.py'
+)
 
 coll = COLLECT(exe,
                a.binaries,

@@ -1073,7 +1073,7 @@ class Pedlbrd(object):
         intbytes.append(128)
         bytes2 = map(chr, intbytes)
         s = ''.join(bytes2)
-        self.logger.debug("send_to_device. received %d bytes (%s), sending %d bytes (%s)sending raw bytes -> %s" % (len(bytes), bytes, len(bytes2), bytes2, str(map(ord, bytes2))))
+        self.logger.info("send_to_device. received %d bytes (%s), sending %d bytes (%s)sending raw bytes -> %s" % (len(bytes), bytes, len(bytes2), bytes2, str(map(ord, bytes2))))
         try:
             self._serialconnection.write(s)
         except serial.SerialException:
