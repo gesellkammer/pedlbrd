@@ -384,9 +384,10 @@ class Pedlbrd(QWidget):
                     '-e', 'activate',
                     '-e', 'end tell'])
                 self._subprocs['pedltalk'] = p
-            elif sys.platform == 'linux2':
-                print "platform not supported"
-
+            elif sys.platform == 'linux2': 
+                p = subprocess.Popen(args=[ "xterm", "-e", "python", "pedltalk.py" ])
+                self._subprocs['pedltalk'] = p
+                
     def get_midiports(self, notify=None):
         def callback(*ports):
             print "get_midiports:callback", ports

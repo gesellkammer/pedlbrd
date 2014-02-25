@@ -1720,15 +1720,12 @@ class Pedlbrd(object):
 
     # ------------------------------------
 
-    def open_log(self, debug=False):
+    def open_log(self, debug=True):
         if sys.platform == 'darwin':
-            os.system("open -a Console %s" % self.logger.filename_info)
-            if debug:
-                os.system("open -a Console %s" % self.logger.filename_debug)
+            os.system("open -a Console %s" % self.logger.filename_debug)
         elif sys.platform == 'linux2':
             os.system("xdg-open %s" % self.logger.filename_debug)
-            return
-
+            
     # --------------------------------------------------------
     # ::OSC server
     # --------------------------------------------------------
