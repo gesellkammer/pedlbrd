@@ -34,11 +34,17 @@ An Arduino based sensor interface.
 * Qt 4.7
 * PySide
 * liblo, pyliblo
-* rtmidi2
-* timer2
+* [rtmidi2]
+* [timer2]
 * Cython
-* notifydict
+* [notifydict]
 * virtualenv
+
+## Other Dependencies
+
+* Arduino >= 1.0
+* [SignalFilter] library for Arduino
+
 
 ## Build Steps
 
@@ -66,3 +72,9 @@ For more information on the OSC API, see pedlbrd/protocols.txt
 [icon]: assets/pedlbrd-icon-128.png "Pedlbrd" style="margin-left:auto; margin-right:auto"
 [oscapi]: pedlbrd/protocols.md
 [Downloads]: https://github.com/gesellkammer/pedlbrd/tree/master/binaries
+[rtmidi2]: https://github.com/gesellkammer/rtmidi2
+[notifydict]: https://github.com/gesellkammer/notifydict
+[timer2]: http://pythonhosted.org/timer2/reference/timer2.html
+[SignalFilter]: http://jeroendoggen.github.io/Arduino-signal-filtering-library
+
+
