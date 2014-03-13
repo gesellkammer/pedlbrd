@@ -5,6 +5,7 @@ import glob
 import sys
 import time
 import shutil
+import serial
 
 #############################
 # Environment
@@ -76,10 +77,19 @@ def possible_ports():
 	"""
 	return a list of possible serial ports to look for an arduino device
 	"""
-	if sys.platform == 'darwin':
-		ports = glob.glob("/dev/tty.usbmodem*")
-	elif sys.platform == 'linux2':
-		ports = glob.glob("/dev/*ACM*")
+	from serial.tools import list_ports
+	if sys.platform in ('darwin', 'linux2'):
+		comports = list_ports.comports()
+		ports = [path for path, name, portid in comports if "arduino" in name.lower()]
+		# This is just hear-say, but on OSX, the tty. version of the port should be used
+		if sys.platform == 'darwin':
+			ports2 = []
+			for port in ports:
+				ttyname = port.replace("cu.", "tty.") 
+				if os.path.exists(ttyname):
+					port = ttyname
+				ports2.append(port)
+			ports = ports2
 	else:
 		print "Platform not supported!"
 		return None

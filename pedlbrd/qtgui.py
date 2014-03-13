@@ -413,6 +413,8 @@ class Pedlbrd(QWidget):
 
     def launch_debugging_console(self):
         pedltalk_proc = self._subprocs.get('pedltalk')
+        # this changed
+        
         if pedltalk_proc is None or pedltalk_proc.poll() is not None:  # either first call, or subprocess finished
 
             if sys.platform == 'darwin':

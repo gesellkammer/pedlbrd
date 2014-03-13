@@ -93,16 +93,19 @@ class OSCPortUsed(BaseException): pass
 ################################
 
 def detect_port():
+    _debug("detecting possible ports")
     possible_ports = envir.possible_ports()
     _debug("possible ports: %s" % str(possible_ports))
 
     if not possible_ports:
         return None
     for port in possible_ports:
+        _debug("searching for heartbeat on port %s" % port)
         if _is_heartbeat_present(port):
+            _debug("found heartbeat!")
             return port
         else:
-            print "found port %s, but the device is not sending its heartbeat.\nIt is either another device, or the device is in debug mode" % port
+            _debug("found port %s, but no heartbeat detected" % port)
     return None
 
 def write_default_config(name=None):
@@ -188,7 +191,9 @@ class Configuration(dict):
         elif isinstance(path, (tuple, list)):
             keys = path
         else:
-            raise ValueError("the path must be a string of the type key1/key2/... or a seq [key1, key2, ...]")
+            raise ValueError(
+              "the path must be a string of the type key1/key2/... or a seq [key1, key2, ...]"
+            )
         d = self
         if len(keys) == 0:
             self[path] = value
@@ -357,7 +362,7 @@ class Pedlbrd(object):
         if self.config.get('open_log_at_startup', False):
             self.open_log()
         REG['logger'] = self.logger
-        
+
     def _call_regularly(self, period, function, args=(), kws={}):
         return self._scheduler.apply_interval(period*1000, function, args, kws)
 
@@ -780,7 +785,7 @@ class Pedlbrd(object):
                 msg   = midifunc(value)
                 if msg:
                     sendmidi(msg)
-                # we send the normalized data as 32bit float, which is more than enough for the 
+                # we send the normalized data as 32bit float, which is more than enough for the
                 # ADC resolution of any sensor
                 for address in addresses:
                     oscsend(address, '/data/A', labelpin, ('f', value))
@@ -889,10 +894,11 @@ class Pedlbrd(object):
                     b = _ord(b)
                     if not(b & 0b10000000):
                         continue
+                    # check also when on heavy load
                     if (now - bgtask_lastcheck) > bgtask_checkinterval:
                         bgtask_lastcheck = now
                         if osc_recv_inside_loop:
-                            self._oscserver.recv(5)
+                            self._oscserver.recv(0)
                     cmd = b & 0b01111111
                     # -------------
                     #   ANALOG
@@ -952,10 +958,8 @@ class Pedlbrd(object):
                         if value == 1:
                             button_pressed_time = now
                         elif value == 0:
-                            if now - button_pressed_time < button_short_click:
-                                self.calibrate_digital()
-                            else:
-                                self.calibrate_digital()
+                            self.calibrate_digital()
+                            if now - button_pressed_time > button_short_click:
                                 self.reset_state()
                         send_osc_ui('/button', param, value)
                         send_osc_data('/button', param, value)
@@ -1002,7 +1006,7 @@ class Pedlbrd(object):
                                 analog_data = map(_ord, serial_read(s, 5))
                                 analog_pins.append( AnalogPin(*analog_data) )
                             info = dict(
-                                dev_id=dev_id, max_digital_pins=max_digital_pins, max_analog_pins=max_analog_pins, analog_pins=analog_pins, 
+                                dev_id=dev_id, max_digital_pins=max_digital_pins, max_analog_pins=max_analog_pins, analog_pins=analog_pins,
                                 num_digital_pins=num_digital_pins, num_analog_pins=num_analog_pins,
                                 enabled_pins_analog=enabled_pins_analog, enabled_pins_digital=enabled_pins_digital
                             )
@@ -1131,7 +1135,6 @@ class Pedlbrd(object):
     def edit_config(self):
         if self.configfile and os.path.exists(self.configfile):
             # TODO
-            # _json_editor(self.configfile)
             raise NotImplementedError("this feature is not implemented")
         else:
             self.logger.error("could not find a config file to edit")
@@ -1152,10 +1155,10 @@ class Pedlbrd(object):
             else:
                 self._analog_minvalues[pin] = value
                 value2 = 0
-            return value2 
+            return value2
         else:
             value2 = (value - minvalue) / (maxvalue - minvalue)
-            if value2 > 1: 
+            if value2 > 1:
                 value2 = 1
             elif value2 < 0:
                 value2 = 0
@@ -1182,7 +1185,6 @@ class Pedlbrd(object):
                 self._midiout.open_port(wildcard_or_index)
                 print "open ports:", self._midiout._openedports
                 self._midithrough_ports.add(wildcard_or_index)
-
         else:
             if not isinstance(wildcard_or_index, int):
                 self.logger.error("midithrough ports can only be unset by index")
@@ -1191,9 +1193,6 @@ class Pedlbrd(object):
                 self._midiout.close_port()
                 for port in self._midithrough_ports:
                     self._midiout.open_port(port)
-
-
-
 
     def _notify_disconnected(self):
         msg = "DISCONNECTED!"
@@ -1339,7 +1338,7 @@ class Pedlbrd(object):
         return cc
 
     def cmd_midithrough_set(self, wildcard_or_index, value):
-        """If int, the index of the midiport 
+        """If int, the index of the midiport
            If string, the name of the midiport (or a wildcard to match)
            value: 1 to enable, 0 to disable
         """
@@ -1446,8 +1445,8 @@ class Pedlbrd(object):
             self._oscserver.send(src, '/devinfo', tags, *info)
             tags = 'label:resolution:smoothing:filtertype:denoise:autorange:minvalue:maxvalue'
             for pin in devinfo['analog_pins']:
-                self._oscserver.send(src, '/devinfo/analogpin', tags, 
-                    self.pin2label('A', pin.pin), pin.resolution, pin.smoothing, pin.filtertype, pin.denoise, 
+                self._oscserver.send(src, '/devinfo/analogpin', tags,
+                    self.pin2label('A', pin.pin), pin.resolution, pin.smoothing, pin.filtertype, pin.denoise,
                     self._analog_autorange[pin.pin], self._analog_minvalues[pin.pin], self._analog_maxvalues[pin.pin]
                 )
             print "end of callback!"
@@ -1463,8 +1462,8 @@ class Pedlbrd(object):
     def cmd__ping(self, path, args, types, src):
         """
         PING protocol: /ping [optional-return-addr] ID:int
-        will always reply to path /pingback on the 
-        src address if no address is given. 
+        will always reply to path /pingback on the
+        src address if no address is given.
         /pingback should return the ID given in /ping
         Examples: /ping localhost:9000 3456
                   /ping 9000 3456 (uses src.hostname:9000)
@@ -1725,7 +1724,7 @@ class Pedlbrd(object):
             os.system("open -a Console %s" % self.logger.filename_debug)
         elif sys.platform == 'linux2':
             os.system("xdg-open %s" % self.logger.filename_debug)
-            
+
     # --------------------------------------------------------
     # ::OSC server
     # --------------------------------------------------------
@@ -1919,7 +1918,7 @@ class Pedlbrd(object):
                 self._oscserver.send(addr, replypath, methodname, replyid, *out)
                 self._osc_reply_addresses.add(addr)
         return wrapper
-        
+
 ###############################
 # ::Helper functions
 ###############################
@@ -2020,14 +2019,17 @@ def _sanitize_osc_address(*args):
         return None
     return (host, port)
 
-def _is_heartbeat_present(port):
+def _is_heartbeat_present(port, timeout=2):
     "return True if the given serial port is transmitting a heartbeat"
-    timeout = 1 # this should be long enough so that a heartbeat is detected
-    num_attempts = 10
-    s = serial.Serial(port, baudrate=BAUDRATE, timeout=timeout)
-    N = 10
+    _debug("opening device %s" % port)
+    try:
+        s = serial.Serial(port, baudrate=BAUDRATE, timeout=0.5)
+    except OSError:
+        # device is busy, probably open by another process
+        return False
     s_read = s.read
-    while num_attempts >= 0:
+    t0 = time.time()
+    while time.time() - t0 < timeout:
         try:
             b = s_read(1)
             if len(b):
@@ -2040,8 +2042,6 @@ def _is_heartbeat_present(port):
                             return True
         except serial.SerialException:
             # this happens when the device is in an unknown state, during firmware update, etc.
-            num_attempts -= 1
-        except:
             return False
 
 def _jsondump(d, filename):
