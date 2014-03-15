@@ -126,6 +126,11 @@ def write_default_config(name=None):
 # -----------------------------------------------------------------------
 
 class Configuration(dict):
+    """
+    This implements a dictionary which will notify a registered callback
+    when a change is made.
+    It also supports subdictionaries (very similar to 'notifydict')
+    """
     __slots__ = "callback _label2pin _pin2label _callback_enabled state".split()
     def __init__(self, config, overrides=None, callback=None):
         """
@@ -213,7 +218,6 @@ class Configuration(dict):
                 self.state['changed'] = True
 
     def midi_mapping_for_label(self, label):
-        # return self['midi_mapping'].get(label)
         return self['input_mapping'].get(label).get('midi')
 
 
@@ -469,8 +473,8 @@ class Pedlbrd(object):
         self.logger.info("stopping...")
         self._set_status('QUIT')
         self._send_to_all('/quit')
+        # this will exit the mainloop, and _terminate will be called
         self._running = False
-        # after exiting the mainloop, _terminate will be called
 
     def _send_to_all(self, path, *args):
         addrs = set()
