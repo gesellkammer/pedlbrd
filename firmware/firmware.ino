@@ -127,7 +127,7 @@ INPUT
 #define sign(num) int((num>0)-(num<0))
 
 const int enabled_pins_digital[] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11}; // pin 12 unused
-const int enabled_pins_analog[]  = {0, 1, 2}; // TODO: connect also pin A3
+const int enabled_pins_analog[]  = {0, 1, 2, 3}; // TODO: connect also pin A3
 
 int 
 	analog_max[MAX_ANALOG_PINS],
