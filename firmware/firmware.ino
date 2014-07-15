@@ -232,6 +232,13 @@ void set_smoothing_percent(int pin, int percent) {
 		send_error(ERROR_INDEX);
 		return;
 	}
+	
+	if( percent < 0 ) {
+		percent = 0;
+	} else if (percent >= 99) {
+		percent = 99;
+	}
+
 	int current_percent = int(analog_smoothing[pin] * 100);
 	if( percent != current_percent) {
 		analog_smoothing[pin] = (float)(percent / 100.0);
@@ -648,13 +655,11 @@ void loop() {
 	}
 	#endif
 
-	
 	driver_present = (now - last_incomming_heartbeat) < 1000;
 	if( !driver_present ) {
 		blink_led = true;
 	}
 	
-
 	////////////////////////
 	// BUTTON
 
@@ -732,19 +737,38 @@ void loop() {
 			continue;
 		}
 
+		/*
+		if( filtertypes[pin] > 0){
+			raw = Filter[pin].run(raw);
+		}
+		*/
+		
+		smoothvalue = float(raw * (1.0f - smoothing) + analog_sentvalue[pin] * smoothing) / ADC_MAXVALUE;
+		
+		/*
+		// smoothvalue will be normalized between 0-1
 		if( filtertypes[pin] > 0 ) {
 			smoothvalue = float(raw * (1.0f - smoothing) + (smoothing * Filter[pin].run(raw))) / ADC_MAXVALUE;
 		} 
 		else {
 			smoothvalue = float(raw * (1.0f - smoothing) + analog_sentvalue[pin] * smoothing) / ADC_MAXVALUE;
 		}
+		*/
 
 		analog_resolution = analog_resolution_for_pin[pin];
+		if( smoothvalue < 0 ) {
+			smoothvalue = 0;
+		} else if (smoothvalue > 1) {
+			smoothvalue = 1;
+		}
+
 		value = int(smoothvalue * analog_resolution);
 
+		/*
 		if( value > analog_resolution ) {
 			value = analog_resolution;
 		}
+		*/
 		
 		int diff = abs(value - last_sentvalue);
 		bool send_it = false;
