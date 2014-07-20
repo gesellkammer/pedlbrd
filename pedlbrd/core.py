@@ -49,7 +49,7 @@ VALUE = VALUE_HIGH * 128 + VALUE_LOW
 # The oscport could be configurable if we implemented some sort of
 # zeroconf support, which is overkill for this project
 #################################
-BAUDRATE   = 250000
+BAUDRATE   = 115200
 OSCPORT    = 47120
 PEDLBRD_ID = 5
 
@@ -2023,8 +2023,14 @@ def _sanitize_osc_address(*args):
         return None
     return (host, port)
 
-def _is_heartbeat_present(port, timeout=2):
-    "return True if the given serial port is transmitting a heartbeat"
+def _is_heartbeat_present(port, timeout=1.5, wait=0.8):
+    """
+    Return True if the given serial port is transmitting a heartbeat
+
+    timeout: how much time to look for the heartbeat
+    wait: when a connection is done, the device starts over. Here we account
+          for this time, the timeout starts counting after the wait time
+    """
     _debug("opening device %s" % port)
     try:
         s = serial.Serial(port, baudrate=BAUDRATE, timeout=0.5)
@@ -2032,6 +2038,8 @@ def _is_heartbeat_present(port, timeout=2):
         # device is busy, probably open by another process
         return False
     s_read = s.read
+    if wait:
+        time.sleep(wait)
     t0 = time.time()
     while time.time() - t0 < timeout:
         try:

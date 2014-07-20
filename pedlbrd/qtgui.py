@@ -4,6 +4,7 @@ import sys, os, time, subprocess
 import liblo
 import Queue
 import logging
+import time
 
 global qt_app
 
@@ -223,7 +224,6 @@ class Pedlbrd(QWidget):
         self.conn_status = None
         self.osc_thread = OSCThread(self, pedlbrd_address=pedlbrd_address)
         self.osc_thread.start()
-        self._last_heartbeat = time.time()
         self._polltimer_updaterate = 12
         self.setWindowIcon(QIcon('assets/pedlbrd-icon.png'))
         self._midiports = []
@@ -310,7 +310,7 @@ class Pedlbrd(QWidget):
         debug_button.clicked.connect(self.action_debug)
         
         self.quit_button = QPushButton('Quit', self)
-        self.quit_button.clicked.connect(QCoreApplication.instance().quit)
+        #self.quit_button.clicked.connect(QCoreApplication.instance().quit)
         self.quit_button.clicked.connect(self.action_quit)
 
         # Add it to the button box
@@ -400,6 +400,8 @@ class Pedlbrd(QWidget):
 
     def action_quit(self):
         self.osc_thread.sendosc('/quit')
+        self.osc_thread.stop()
+        time.sleep(0.2)
         QCoreApplication.instance().quit()
         
     def action_reset(self):

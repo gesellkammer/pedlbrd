@@ -48,17 +48,17 @@ INPUT
 //#define STRESS_TEST
 
 /* SETTINGS */
-#define ID 5                 // The ID of this device
+#define DEVICE_ID 5                 // The ID of this device
 #define DEFAULT_DELAY 20  // Delay between each read, in ms (add also 1ms for each pin ~= +14ms)
-#define HEARTBEAT   300      // Period of the Heartbeat, in ms (Default, can be changed via serial)
+#define HEARTBEAT   300   // Period of the Heartbeat, in ms (Default, can be changed via serial)
 #define ANALOG_READ_DELAY 1  // delay between analog reads to stabilize impedence (see http://forums.adafruit.com/viewtopic.php?f=25&t=11597)
 #define DIGITAL_READ_DELAY 0
 #define DEFAULT_SMOOTHING_PERCENT 77
 #define SEND_HEARTBEAT
 
 /* PROTOCOL */
-//#define BAUDRATE 115200
-#define BAUDRATE 250000
+#define BAUDRATE 115200
+//#define BAUDRATE 250000
 #define CMD_DIGITAL  68      // D
 #define CMD_ANALOG   65      // A
 #define CMD_HERTBEAT 72      // H 
@@ -378,7 +378,8 @@ void setup() {
 		Serial.println("Starting");
 	#endif
 
-	heartbeat_period    = eeprom_read_uint(ADDR_U2_HEARTBEAT, HEARTBEAT, HEARTBEAT_MINPERIOD, HEARTBEAT_MAXPERIOD);
+	// heartbeat_period    = eeprom_read_uint(ADDR_U2_HEARTBEAT, HEARTBEAT, HEARTBEAT_MINPERIOD, HEARTBEAT_MAXPERIOD);
+	heartbeat_period = HEARTBEAT;
 	delay_between_loops = eeprom_read_uint(ADDR_U2_DELAY, DEFAULT_DELAY, MIN_DELAY, MAX_DELAY);
 	blink_enabled       = eeprom_read_byte(ADDR_U1_BLINK_ENABLED, 1, 0, 1);
 	
@@ -541,7 +542,7 @@ void act_on_command() {
 					replyid = command[2];
 					Serial.write(128 + CMD_INFO);
 					Serial.write(replyid);
-					Serial.write(ID);
+					Serial.write(DEVICE_ID);
 					Serial.write(MAX_DIGITAL_PINS);
 					Serial.write(MAX_ANALOG_PINS);
 					Serial.write(num_digital_pins);
@@ -647,14 +648,16 @@ void loop() {
 		act_on_command();
 	}
 
-	#ifdef SEND_HEARTBEAT
 	if( ((now - last_heartbeat) > heartbeat_period) || (last_heartbeat > now) ) {
-		Serial.write(128 + CMD_HERTBEAT); 
-		Serial.write(ID);
+		#ifdef NORMAL
+			Serial.write(128 + CMD_HERTBEAT); 
+			Serial.write(DEVICE_ID);
+		#else
+			Serial.println("HB");
+		#endif
 		last_heartbeat = now;
 	}
-	#endif
-
+	
 	driver_present = (now - last_incomming_heartbeat) < 1000;
 	if( !driver_present ) {
 		blink_led = true;
