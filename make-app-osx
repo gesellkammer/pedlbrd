@@ -143,10 +143,10 @@ fi
 #    Create DMG
 # -----------------
 
-if [ $SIMPLEDMG == 1 ]; then
+if [[ $SIMPLEDMG == 1 ]]; then
 	rm -f $PACKAGE
 	mkdir -p $BUILDFOLDER/package
-	if [ $COPYAPP == 1 ] ; then
+	if [[ $COPYAPP == 1 ]]; then
 		echo "   * copying app"
 		cp -r $BUILDFOLDER/dist/$ENTRY.app $BUILDFOLDER/package
 		echo "creating DMG"

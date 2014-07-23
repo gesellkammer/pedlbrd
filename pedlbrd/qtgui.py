@@ -97,7 +97,7 @@ class OSCThread(QThread):
     def cmd_data_D(self, pin, value):
         self.gui.digpins[pin-1].setValue(value)
     
-    def cmd_data_A(self, pin, value):
+    def cmd_data_A(self, pin, value, rawvalue):
         self.gui.anpins[pin - 1].setValue(value)
 
     def _get(self, param, callback, args, in_main_thread):
@@ -131,6 +131,11 @@ class OSCThread(QThread):
 
     def cmd_notify_calibrate(self):
         invoke_in_main_thread(lambda gui:gui.calibrated(), self.gui)
+
+    def cmd_quit(self):
+        # the core is asking to quit
+        self.gui.action_quit(notify_core=False)
+
 
     def _get_reply_id(self):
         self._last_replyid = (self._last_replyid + 1) % 999999
@@ -278,7 +283,8 @@ class Pedlbrd(QWidget):
         self.status = QLabel('...', self)
         form_layout.addRow('STATUS', self.status)
 
-        osc_in = "%s:%d" % self._pedlbrd_address
+        #osc_in = "%s:%d" % self._pedlbrd_address
+        osc_in = str(self._pedlbrd_address[1])
         form_layout.addRow('OSC IN', QLabel(osc_in))
 
         self._oscout = QLabel(str(47121))
@@ -398,8 +404,9 @@ class Pedlbrd(QWidget):
     def set_digitalpin(self, pin, value):
         self.digpins[pin-1].setValue(value)
 
-    def action_quit(self):
-        self.osc_thread.sendosc('/quit')
+    def action_quit(self, notify_core=True):
+        if notify_core:
+            self.osc_thread.sendosc('/quit')
         self.osc_thread.stop()
         time.sleep(0.2)
         QCoreApplication.instance().quit()

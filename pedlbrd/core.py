@@ -785,14 +785,15 @@ class Pedlbrd(object):
             sendmidi = midiout.send_message
             kind, pin = self.label2pin(label)
             def callback(value, pin=pin, normalize=self._normalize, oscsend=self._oscserver.send, addresses=self._osc_data_addresses):
-                value = normalize(pin, value)
-                msg   = midifunc(value)
+                normvalue = normalize(pin, value)
+                msg = midifunc(normvalue)
                 if msg:
                     sendmidi(msg)
                 # we send the normalized data as 32bit float, which is more than enough for the
                 # ADC resolution of any sensor
                 for address in addresses:
-                    oscsend(address, '/data/A', labelpin, ('f', value))
+                    # oscsend(address, '/data/A', labelpin, ('f', value))
+                    oscsend(address, '/data/A', labelpin, ('f', normvalue), ('i', value))
                 return value
             return callback
 
@@ -893,7 +894,7 @@ class Pedlbrd(object):
                         # If we are doind the OSC in sync, we check at each timeout and after a checkinterval
                         # whenever the connection is active
                         if osc_recv_inside_loop:
-                            self._oscserver.recv(5)
+                            self._oscserver.recv(0)
                         continue
                     b = _ord(b)
                     if not(b & 0b10000000):
@@ -914,8 +915,8 @@ class Pedlbrd(object):
                             continue
                         param = _ord(msg[0])
                         value = _ord(msg[1])*128 + _ord(msg[2])
-                        if sendraw:
-                            send_osc_data('/raw', alabels[param], value)
+                        #if sendraw:
+                        #    send_osc_data('/raw', alabels[param], value)
                         func = analog_funcs[param]
                         if func:
                             func(value)
@@ -934,8 +935,8 @@ class Pedlbrd(object):
                             config.set("input_mapping/%s/inverted" % label, bool(value))
                             digitalinput_needs_calibration[param] = False
                         else:
-                            if sendraw:
-                                send_osc_data('/raw', dlabels[param], value)
+                            #if sendraw:
+                            #    send_osc_data('/raw', dlabels[param], value)
                             func = digital_funcs[param]
                             if func:
                                 func(value)
@@ -948,7 +949,7 @@ class Pedlbrd(object):
                             self._notify_connected()
                             self._get_device_info()
                             connected = True
-                        send_osc_ui('/heartbeat')
+                        # send_osc_ui('/heartbeat')
                     # -------------
                     #   BUTTON
                     # -------------
