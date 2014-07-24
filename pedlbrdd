@@ -1,0 +1,9 @@
+#!/bin/bash
+echo "Starting PEDLBRD service."
+echo "To stop it, send /quit to OSC 47120"
+echo "Or at the terminal:"
+echo "    $ killall Pedlbrd"
+
+mkdir -p ~/.pedlbrd
+
+/Applications/Pedlbrd.app/Contents/MacOS/Pedlbrd --nogui > ~/.pedlbrd/daemon.log & disown

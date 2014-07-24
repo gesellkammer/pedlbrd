@@ -129,7 +129,10 @@ if [ $BUILDAPP == 1 ]; then
 	if [ $REMOVE_UNUSED_FILES == 1 ]; then
 		echo "<< removing unused files >>"
 		rm -fr $BUILDFOLDER/dist/$ENTRY.app/Contents/Frameworks/Tcl.framework/Versions/8.5/Resources/English.lproj/ActiveTcl-8.5
-		rm -fr $BUILDFOLDER/dist/$ENTRY.app/Contents/Resources/lib/python2.7/lib-dynload/Cython
+		for package in Cython pyexpat.so _codecs_jp.so _codecs_cn.so _codecs_hk.so; do
+			rm -fr $BUILDFOLDER/dist/$ENTRY.app/Contents/Resources/lib/python2.7/lib-dynload/$package
+		done
+
 	fi
 	
 	echo "The app is at $BUILDFOLDER/dist/$ENTRY.app"

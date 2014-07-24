@@ -156,10 +156,10 @@ class Slider(QWidget):
         self._dirty = False
     
     def minimumSizeHint(self):
-        return QSize(10, 10)
+        return QSize(8, 10)
 
     def sizeHint(self):
-        return QSize(10, 100)
+        return QSize(8, 100)
     
     def paintEvent(self, event):
         p = QPainter()
@@ -236,7 +236,7 @@ class Pedlbrd(QWidget):
         # -----------------------------------------------
         self.setup_widgets()
         self.create_polltimer()
-        self.call_later(2000, self.post_init)
+        self.call_later(1000, self.post_init)
         
     def create_polltimer(self):
         self._polltimer = timer = QTimer()
@@ -312,19 +312,23 @@ class Pedlbrd(QWidget):
         # Add stretch to push the button to the far right
         reset_button = QPushButton('Reset', self)
         reset_button.clicked.connect(self.action_reset)
-        debug_button = QPushButton('Debug', self)
+        debug_button = QPushButton('#', self)
         debug_button.clicked.connect(self.action_debug)
+        daemon_button = QPushButton('Hide', self)
+        daemon_button.clicked.connect(self.action_daemon)
+
         
         self.quit_button = QPushButton('Quit', self)
-        #self.quit_button.clicked.connect(QCoreApplication.instance().quit)
         self.quit_button.clicked.connect(self.action_quit)
 
         # Add it to the button box
-        buttons = [reset_button, debug_button]
+        buttons = [reset_button, debug_button, daemon_button]
         for button in buttons:
             button_box.addWidget(button)
-        button_box.addStretch(1)
+
+        #button_box.addStretch()
         button_box.addWidget(self.quit_button)
+        button_box.setSpacing(2)
         
         # Grid
         grid0 = QGridLayout()
@@ -345,6 +349,7 @@ class Pedlbrd(QWidget):
         slider_grid = QGridLayout()
         for i, slider in enumerate(sliders):
             slider_grid.addWidget(slider, 0, i, 1, 1)
+        slider_grid.setSpacing(6)
 
         grid0.addLayout(slider_grid, 0, 1)
  
@@ -369,6 +374,10 @@ class Pedlbrd(QWidget):
 
     def post_init(self):
         self.fetch_midiports()
+        def callback(status):
+            self.set_status(status)
+        self.osc_thread.get_mainthread('status', callback)
+
         
     def fetch_midiports(self):
         def callback(ports):
@@ -410,6 +419,9 @@ class Pedlbrd(QWidget):
         self.osc_thread.stop()
         time.sleep(0.2)
         QCoreApplication.instance().quit()
+
+    def action_daemon(self):
+        self.action_quit(notify_core=False)
         
     def action_reset(self):
         self.osc_thread.sendosc('/resetstate')

@@ -55,18 +55,19 @@ INPUT
 #define DIGITAL_READ_DELAY 0
 #define DEFAULT_SMOOTHING_PERCENT 77
 #define SEND_HEARTBEAT
+//#define BLINK_LED_WHEN_DRIVER_NOT_PRESENT
 
 /* PROTOCOL */
 #define BAUDRATE 115200
 //#define BAUDRATE 250000
-#define CMD_DIGITAL  68      // D
-#define CMD_ANALOG   65      // A
-#define CMD_HERTBEAT 72      // H 
-#define CMD_REPLY    82	     // R
-#define CMD_ERROR    69      // E
-#define CMD_MESSAGE  77      // M
-#define CMD_INFO     73      // I
-#define CMD_BUTTON   66      // B
+#define CMD_DIGITAL  68      // D igital
+#define CMD_ANALOG   65      // A nalog
+#define CMD_HERTBEAT 72      // H eartbeat
+#define CMD_REPLY    82	     // R eply
+#define CMD_ERROR    69      // E rror
+#define CMD_MESSAGE  77      // M essage
+#define CMD_INFO     73      // I info
+#define CMD_BUTTON   66      // B utton
 
 /* INTERNAL */
 #define MAX_ANALOG_PINS  4   // A4 and A5 are not used, left for future expansion using I2C        
@@ -127,7 +128,7 @@ INPUT
 #define sign(num) int((num>0)-(num<0))
 
 const int enabled_pins_digital[] = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11}; // pin 12 unused
-const int enabled_pins_analog[]  = {0, 1, 2, 3}; // TODO: connect also pin A3
+const int enabled_pins_analog[]  = {0, 1, 2, 3};
 
 int 
 	analog_max[MAX_ANALOG_PINS],
@@ -526,7 +527,7 @@ void act_on_command() {
 			break;
 		case 'G': // GET
 			switch( command[1] ) {
-				case 'A': // GET MAX ANALOG VALUE FOR PIN
+				case 'A': // GET MAX ANALOG RESOLUTION FOR PIN
 					CHECK_CMD_LENGTH(4)
 					pin = command[2];
 					replyid = command[3];
@@ -658,10 +659,12 @@ void loop() {
 		last_heartbeat = now;
 	}
 	
-	driver_present = (now - last_incomming_heartbeat) < 1000;
-	if( !driver_present ) {
-		blink_led = true;
-	}
+	#ifdef BLINK_LED_WHEN_DRIVER_NOT_PRESENT
+		driver_present = (now - last_incomming_heartbeat) < 1000;
+		if( !driver_present ) {
+			blink_led = true;
+		}
+	#endif
 	
 	////////////////////////
 	// BUTTON

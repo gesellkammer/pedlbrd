@@ -477,13 +477,15 @@ class Pedlbrd(object):
         self._running = False
 
     def _send_to_all(self, path, *args):
-        addrs = set()
-        addrs.update(self.config['osc_ui_addresses'])
-        addrs.update(self.config['osc_data_addresses'])
-        addrs.update(self._osc_reply_addresses)
+        addrs = self.config['osc_ui_addresses']
         for addr in addrs:
-            self._oscserver.send(addr, path, *args)
-
+            libloaddr = liblo.Address(*addr)
+            self._oscserver.send(libloaddr, path, *args)
+        addrs = self.config['osc_data_addresses']
+        for addr in addrs:
+            libloaddr = liblo.Address(*addr)
+            self._oscserver.send(libloaddr, path, *args)
+        
     def _terminate(self):
         if self._oscasync:
             self._oscserver.stop()
@@ -784,13 +786,20 @@ class Pedlbrd(object):
         if label[0] == "A":
             sendmidi = midiout.send_message
             kind, pin = self.label2pin(label)
-            def callback(value, pin=pin, normalize=self._normalize, oscsend=self._oscserver.send, addresses=self._osc_data_addresses):
-                normvalue = normalize(pin, value)
+            #normalize = self._normalize
+            normalize = self._gen_normalize(pin)
+            oscsend = self._oscserver.send
+            addresses = self._osc_data_addresses
+            #def callback(value, pin=pin, normalize=self._normalize, oscsend=self._oscserver.send, addresses=self._osc_data_addresses):
+            def callback(value):
+                #normvalue = normalize(pin, value)
+                normvalue = normalize(value)
                 msg = midifunc(normvalue)
                 if msg:
                     sendmidi(msg)
                 # we send the normalized data as 32bit float, which is more than enough for the
-                # ADC resolution of any sensor
+                # ADC resolution of any sensor, and ensures compatibility with
+                # osc implementations such as PD, which only interprets floats as 32 bits
                 for address in addresses:
                     # oscsend(address, '/data/A', labelpin, ('f', value))
                     oscsend(address, '/data/A', labelpin, ('f', normvalue), ('i', value))
@@ -852,9 +861,10 @@ class Pedlbrd(object):
         self._running = True
         self._set_status('STARTING')
 
-        bgtask_checkinterval = self.config['sync_bg_checkinterval']  # if the mainloop is active without time out for this interval, it will be interrupted
-        idle_threshold       = self.config['idle_threshold'] # do background tasks after this time of idle (no data comming from the device)
-        button_short_click   = self.config['reset_click_duration']
+        bgtask_checkinterval  = self.config['sync_bg_checkinterval']  # if the mainloop is active without time out for this interval, it will be interrupted
+        idle_threshold        = self.config['idle_threshold'] # do background tasks after this time of idle (no data comming from the device)
+        button_short_click    = self.config['reset_click_duration']
+        osc_forward_heartbeat = self.config['osc_forward_heartbeat']
 
         self.logger.info("\n>>> started listening!")
         def serial_read(serial, numbytes):
@@ -949,7 +959,8 @@ class Pedlbrd(object):
                             self._notify_connected()
                             self._get_device_info()
                             connected = True
-                        # send_osc_ui('/heartbeat')
+                        if osc_forward_heartbeat:
+                            send_osc_ui('/heartbeat')
                     # -------------
                     #   BUTTON
                     # -------------
@@ -1046,7 +1057,8 @@ class Pedlbrd(object):
                 break
             except KeyboardInterrupt:   # poner una opcion en config para decidir si hay que interrumpir por ctrl-c
                 print "keyboard interrupt!"
-                pass
+                if self.config['stop_on_keyboard_interrupt']:
+                    self.stop()
             except OSError:
                 print "OSError!"
                 self.logger.error("OSError!")
@@ -1143,6 +1155,34 @@ class Pedlbrd(object):
             raise NotImplementedError("this feature is not implemented")
         else:
             self.logger.error("could not find a config file to edit")
+
+    def _gen_normalize(self, pin):
+        maxvalues = self._analog_maxvalues
+        minvalues = self._analog_minvalues
+        if self._analog_autorange[pin]:
+            def func(value):
+                maxvalue = maxvalues[pin]
+                minvalue = minvalues[pin]
+                if minvalue <= value <= maxvalue:
+                    value2 = (value - minvalue) / (maxvalue - minvalue)
+                elif value > maxvalue:
+                    maxvalues[pin] = value
+                    value2 = 1
+                else:
+                    minvalues[pin] = value
+                    value2 = 0
+                return value2
+        else:
+            def func(value):
+                maxvalue = maxvalues[pin]
+                minvalue = minvalues[pin]
+                value2 = (value - minvalue) / (maxvalue - minvalue)
+                if value2 > 1:
+                    value2 = 1
+                elif value2 < 0:
+                    value2 = 0
+                return value2
+        return func
 
     def _normalize(self, pin, value):
         """
