@@ -371,8 +371,9 @@ void led_signal(int numblinks, int period_ms, int dur_ms) {
 ////////////////////////////////////////////////////////////////////////
 
 void setup() {
-	int i;
-	Serial.begin(BAUDRATE);
+	analogReference(EXTERNAL);
+	
+	Serial.begin(BAUDRATE); 
 	while (! Serial); // Wait until Serial is ready - Leonardo
 
 	#ifdef DEBUG
@@ -390,7 +391,7 @@ void setup() {
 
 	pinMode(BUTTONPIN, INPUT_PULLUP);
 
-	for( i=0; i < MAX_ANALOG_PINS; i++) {
+	for( int i=0; i < MAX_ANALOG_PINS; i++) {
 		analog_sentvalue[i] = 0;
 		analog_smoothing[i] = read_smoothing_percent(i, DEFAULT_SMOOTHING_PERCENT) / 100.0;
 		analog_min[i] = ADC_MAXVALUE;
@@ -403,13 +404,13 @@ void setup() {
 		setup_filter(i, read_filtertype(i, DEFAULT_FILTERTYPE));
 	}
 
-	for( i=FIRST_DIGITAL_PIN; i < MAX_DIGITAL_PINS; i++) { 
+	for( int i=FIRST_DIGITAL_PIN; i < MAX_DIGITAL_PINS; i++) { 
 		pinMode(i, INPUT);  
 		digital_state[i] = 0;
 	}
 
 	// clear the serial input buffer
-	for( i=0; i < COMMAND_MAXLENGTH; i++ ) {
+	for( int i=0; i < COMMAND_MAXLENGTH; i++ ) {
 		command[i] = 0;
 	}
 
