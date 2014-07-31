@@ -3,12 +3,16 @@ import time
 import sys
 import os
 import pedlbrd
+import logging
+
+logging.basicConfig()
+logger = logging.getLogger("pedlbrd.py")
 
 PORT_UNSET = -1
 
 def with_gui(coreport):
     """create the core process and a gui on the local machine, on the same process"""
-    print "with gui"
+    logger.debug("with gui")
     # from pedlbrd import gui
     from pedlbrd import qtgui as gui
 
@@ -21,11 +25,11 @@ def with_gui(coreport):
 
 def detached_gui(coreport):
     """create the core process and a gui on the local machine, on different processes"""
-    print "detached_gui"
+    logger.debug("detached_gui")
     import subprocess, time
-    print "getting core"
+    logger.debug("getting core")
     p = get_core(coreport)
-    print "creating gui process"
+    logger.debug("creating gui process")
     # from pedlbrd import gui
     from pedlbrd import qtgui as gui
     normal_guipath = os.path.splitext(gui.__file__)[0] + '.py'
@@ -37,30 +41,31 @@ def detached_gui(coreport):
                 subprocess.Popen(args=[sys.executable, guipath])
             break
     else:
-        print "could not find the gui!"
+        logger.error("could not find the gui!")
         return
-    print "starting core"
+    logger.debug("starting core")
     p.start(async=False)
-    print "core exited!"
+    logger.debug("core exited!")
 
 def detached_gui_reverse(coreport):
     """create the core process and a gui on the local machine, on different processes"""
-    print "detached gui reverse"
+    logger.debug("detached gui reverse")
     import subprocess, time
     from pedlbrd import qtgui as gui
     core_manager = subprocess.Popen(args=[sys.executable, 'pedlbrd.py', '--nogui'])
     # This will block until the gui quits
+    logger.debug("starting gui")
     gui.start(('localhost', 47120))
     
     
 def no_gui(coreport):
     """create the core process only"""
-    print "no gui"
+    logger.debug("no gui")
     p = get_core(coreport)
     if p is None:
-        print "could not create driver"
+        logger.error("could not create driver")
         return False
-    print "starting headless core process. Press CTRL-C or send /quit to OSC port {coreport}".format(coreport=p._oscserver.port)
+    logger.debug("starting headless core process. Press CTRL-C or send /quit to OSC port {coreport}".format(coreport=p._oscserver.port))
     p.start(async=False)
     return True
 
@@ -95,13 +100,13 @@ def inside_virtualenv():
 # ---------------------------
 
 def usage():
-    print """{progname} [options]
+    print("""{progname} [options]
 
     --port portnumber   core: listen to the given port for OSC messages.
     --nogui             start the service headless
     --oscmon            only start the osc monitoring
     --help              this help message
-    """.format(progname=os.path.split(sys.argv[0])[1])
+    """.format(progname=os.path.split(sys.argv[0])[1]))
 
 # //////////////////////////////////////////////////////////////////////
 # MAIN
@@ -124,7 +129,7 @@ if __name__ == '__main__':
     if OSCMON:
         oscmon()
     elif GUI and not DETACHED:
-        print "starting core and gui in single process"
+        logger.debug("starting core and gui in single process")
         with_gui(port)
     elif GUI and DETACHED:
         detached_gui_reverse(port)

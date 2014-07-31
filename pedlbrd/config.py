@@ -33,7 +33,7 @@ DEFAULT_CONFIG = {
 	'serialloop_async': True,
 	'osc_forward_heartbeat': False,
 	'sync_bg_checkinterval': 0.2,
-	'idle_threshold' : 2,
+	'idle_threshold' : 3,
 	'serialtimeout_async': 0.25,
 	'serialtimeout_sync' : 0.1,
 	'stop_on_keyboard_interrupt' : True,

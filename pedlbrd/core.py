@@ -327,6 +327,7 @@ class Pedlbrd(object):
         self._status  = ''
         self._analog_resolution = [DEFAULTS['max_analog_value'] for i in range(16)]
         self._midiout = None
+        self._midioutports = set()
         self._oscasync = oscasync if oscasync is not None else self.config['osc_async']
         self._serialtimeout = self.config['serialtimeout_async'] if oscasync else self.config['serialtimeout_sync']
         self._dispatch_funcs_by_pin = {}
@@ -485,7 +486,7 @@ class Pedlbrd(object):
         for addr in addrs:
             libloaddr = liblo.Address(*addr)
             self._oscserver.send(libloaddr, path, *args)
-        
+
     def _terminate(self):
         if self._oscasync:
             self._oscserver.stop()
@@ -655,7 +656,7 @@ class Pedlbrd(object):
                 inverted  = "INVERTED" if mapping['inverted'] else ""
                 out0, out1 = midi['output']
                 l = "%s    | %s  CH %2d  CC %3d                  (%3d - %3d)" % (label.ljust(3), inverted.ljust(col2),
-                    midi['channel'], midi['cc'], out0, out1)
+                                                                                 midi['channel'], midi['cc'], out0, out1)
             else:
                 pin_normalized = True
                 kind, pin = self.label2pin(label)
@@ -672,7 +673,7 @@ class Pedlbrd(object):
                 in0, in1 = 0, self._analog_resolution[pin]
                 out0, out1 = 0, 127
                 l = "%s    | %s  CH %2d  CC %3d  (%3d - %4d) -> (%3d - %3d)  %s %s" % (label.ljust(3), normalize.ljust(col2),
-                    midi['channel'], midi['cc'], in0, in1, out0, out1, maxvalue, minvalue)
+                                                                                       midi['channel'], midi['cc'], in0, in1, out0, out1, maxvalue, minvalue)
             lines.append(l)
         lines.append("")
         return lines
@@ -827,6 +828,7 @@ class Pedlbrd(object):
         autosave_config_period = self.config.setdefault('autosave_config_period', 21)
         if autosave_config_period:
             self._handlers['save_config'] = self._call_regularly(autosave_config_period, self._save_config, kws={'autosave':False})
+        #self._handlers['midioutports_changed'] = self._call_regularly(3, self._midioutports_check_changed)
 
     # ***********************************************
     #
@@ -897,10 +899,12 @@ class Pedlbrd(object):
                         # Connection Timed Out. Time to do idle work
                         if (now - last_idle) > idle_threshold:
                             sendraw = self._sendraw
+                            self._midioutports_check_changed()
                             last_idle = now
-                        if (now - last_sent_heartbeat) > send_heartbeat_period:
-                            self.send_to_device('H')
-                            last_sent_heartbeat = now
+                        #if (now - last_sent_heartbeat) > send_heartbeat_period:
+                        #    self.send_to_device('H')
+                        #    last_sent_heartbeat = now
+                        
                         # If we are doind the OSC in sync, we check at each timeout and after a checkinterval
                         # whenever the connection is active
                         if osc_recv_inside_loop:
@@ -1094,7 +1098,7 @@ class Pedlbrd(object):
         intbytes.append(128)
         bytes2 = map(chr, intbytes)
         s = ''.join(bytes2)
-        self.logger.info("send_to_device. received %d bytes (%s), sending %d bytes (%s)sending raw bytes -> %s" % (len(bytes), bytes, len(bytes2), bytes2, str(map(ord, bytes2))))
+        # self.logger.debug("send_to_device. received %d bytes (%s), sending %d bytes (%s)sending raw bytes -> %s" % (len(bytes), bytes, len(bytes2), bytes2, str(map(ord, bytes2))))
         try:
             self._serialconnection.write(s)
         except serial.SerialException:
@@ -1217,6 +1221,7 @@ class Pedlbrd(object):
         for port in self._midithrough_ports:
             midiout.open_port(port)
         self._midiout = midiout
+        self._midioutports = self._midiout.ports
 
     def _midi_turnoff(self):
         if self._midiout is not None:
@@ -1272,7 +1277,7 @@ class Pedlbrd(object):
                         conn_found = True
                         break
                     else:
-                        self.logger.debug("....port NOT FOUND. Attempting again in %.2f seconds" % reconnect_period)
+                        self.logger.debug("------------> port NOT FOUND. Attempting again in %.2f seconds" % reconnect_period)
                         time.sleep(reconnect_period)
                 except KeyboardInterrupt:
                     break
@@ -1288,8 +1293,10 @@ class Pedlbrd(object):
         return conn_found
 
     def _get_device_info(self):
-        def callback(*args):
-            print "got device info", args
+        def callback(infodict):
+            p = self.logger.info
+            for k, v in infodict.iteritems():
+                p("{0}: {1}".format(k, v))
         self.send_to_device(('G', 'I'), callback)
 
     def _configchanged_callback(self, key, value):
@@ -1304,6 +1311,20 @@ class Pedlbrd(object):
             self.logger.debug('send raw data: %s' % (str(value)))
         elif paths0 == 'osc_data_addresses' or paths0 == 'osc_ui_addresses':
             self._cache_osc_addresses()
+
+    def _midioutports_check_changed(self, notify=True):
+        self.logger.debug(">>>> checking midioutports")
+        portsnow = set(self._midiout.ports)
+        #portsnow = set(rtmidi.get_out_ports())
+        if portsnow != self._midioutports:
+            self.logger.debug("midioutports changed: %s" % str(portsnow))
+            self._midioutports = portsnow
+            if notify:
+                #self._call_later(0.2, self._send_osc_data, ("/midioutports", self._midioutports)))
+                self._send_osc_data("/midioutports", *self._midioutports)
+            return True
+        self.logger.debug("no change. ports now: %s" % ",".join(portsnow))
+        return False
 
     def _new_replyid(self):
         self._replyid += 1
@@ -1491,10 +1512,9 @@ class Pedlbrd(object):
             tags = 'label:resolution:smoothing:filtertype:denoise:autorange:minvalue:maxvalue'
             for pin in devinfo['analog_pins']:
                 self._oscserver.send(src, '/devinfo/analogpin', tags,
-                    self.pin2label('A', pin.pin), pin.resolution, pin.smoothing, pin.filtertype, pin.denoise,
-                    self._analog_autorange[pin.pin], self._analog_minvalues[pin.pin], self._analog_maxvalues[pin.pin]
+                                     self.pin2label('A', pin.pin), pin.resolution, pin.smoothing, pin.filtertype, pin.denoise,
+                                     self._analog_autorange[pin.pin], self._analog_minvalues[pin.pin], self._analog_maxvalues[pin.pin]
                 )
-            print "end of callback!"
         self.send_to_device(('G', 'I'), callback)
 
     def cmd_analogminval_set(self, analoginput, value):
@@ -1799,8 +1819,8 @@ class Pedlbrd(object):
         def get_info(method):
             docstr = inspect.getdoc(method)
             if docstr and docstr.startswith("{"):
-                    sig, docstr = docstr.split('}')
-                    sig, docstr = sig[1:], docstr.strip()
+                sig, docstr = docstr.split('}')
+                sig, docstr = sig[1:], docstr.strip()
             else:
                 sig = None
             return sig, docstr
@@ -2120,32 +2140,20 @@ class Log:
         debug_handler = logging.handlers.RotatingFileHandler(self.filename_debug, maxBytes=80*2000, backupCount=1)
         debug_handler.setFormatter( logging.Formatter('%(levelname)s: -- %(message)s') )
         debug_log.addHandler(debug_handler)
-        class FilterDebug(object):
-            def filter(self, rec):
-                return rec.levelno != logging.INFO
-        debug_log.addFilter(FilterDebug())
-        info_log = logging.getLogger('pedlbrd-info')
-        info_log.setLevel(logging.INFO)
-        info_handler = logging.handlers.RotatingFileHandler(self.filename_info, maxBytes=80*500, backupCount=0)
-        info_handler.setFormatter( logging.Formatter('%(message)s') )
-        info_log.addHandler(info_handler)
-        class FilterInfo(object):
-            def filter(self, rec):
-                return rec.levelno != logging.DEBUG
-        info_log.addFilter(FilterInfo())
-        self.loggers = (debug_log, info_log)
+        #class FilterDebug(object):
+        #    def filter(self, rec):
+        #        return rec.levelno != logging.INFO
+        #debug_log.addFilter(FilterDebug())
+        self.logger = debug_log
 
     def debug(self, msg):
-        for logger in self.loggers:
-            logger.debug(msg)
+        self.logger.debug(msg)
 
     def info(self, msg):
-        for logger in self.loggers:
-            logger.info(msg)
+        self.logger.info(msg)
 
     def error(self, msg):
-        for logger in self.loggers:
-            logger.error(msg)
+        self.logger.error(msg)
 
 def _debug(msg):
     logger = REG.get('logger')
