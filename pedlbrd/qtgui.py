@@ -387,12 +387,9 @@ class Pedlbrd(QWidget):
     def post_init(self):
         print("--------------------- post_init")
         self.get_midiports()
-        def status_callback(status):
-            self.set_status(status)
-        def midithrough_callback(index):
-            self.midithrough_set(index, notifycore=False, updategui=True)
-        self.osc_thread.get_mainthread('status', status_callback)
-        self.osc_thread.get('midithrough', midithrough_callback)
+        self.osc_thread.get('status', lambda status: invoke_in_main_thread(self.set_status, status))
+        self.osc_thread.get('midithrough', lambda index: self.midithrough_set(index, notifycore=False, updategui=True))
+        self.osc_thread.get('midichannel', lambda chan: invoke_in_main_thread(self.midichannel_combo.setCurrentIndex, chan))
 
     def _update_midiports(self, ports):
         if ports != self._midiports:

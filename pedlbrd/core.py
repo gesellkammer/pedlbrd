@@ -11,7 +11,7 @@ import shutil
 import inspect
 import fnmatch
 import json
-from collections import namedtuple as _namedtuple
+from collections import namedtuple
 
 # dependencies
 import timer2
@@ -93,10 +93,8 @@ class OSCPortUsed(BaseException): pass
 ################################
 
 def detect_port():
-    _debug("detecting possible ports")
     possible_ports = envir.possible_ports()
     _debug("possible ports: %s" % str(possible_ports))
-
     if not possible_ports:
         return None
     for port in possible_ports:
@@ -595,16 +593,16 @@ class Pedlbrd(object):
         return ip
 
     def report(self, log=True):
-        lines = []
-        lines.append("\n\n")
-        lines.append("- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - ")
-        lines.append("MIDI       : %s" % self.config['midi_device_name'])
-        lines.append("PORT       : %s" % self._serialport)
-        lines.append("OSC IN     : %s, %d" % (self.ip, OSCPORT))
+        lines = [
+            "\n\n",
+            "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - ",
+            "MIDI       : %s" % self.config['midi_device_name'],
+            "PORT       : %s" % self._serialport,
+            "OSC IN     : %s, %d" % (self.ip, OSCPORT)
+        ]
         osc_data = self.config['osc_data_addresses']
         osc_ui   = self.config['osc_ui_addresses']
-        def addr_to_str(addr):
-            return ("%s:%d" % tuple(addr)).ljust(16)
+        addr_to_str = lambda addr: ("%s:%d" % tuple(addr)).ljust(16)
         if osc_data:
             oscdata_addresses = map(addr_to_str, osc_data)
             lines.append("OSC OUT    : data  ---------> %s" % " | ".join(oscdata_addresses))
@@ -632,11 +630,7 @@ class Pedlbrd(object):
     def _digitalmap(self):
         dl = list(self.config['input_mapping'].iteritems())
         dl = util.sort_natural(dl, key=lambda row:row[0])
-        out = []
-        for label, mapping in dl:
-            if label[0] == "D":
-                out.append((label, mapping['inverted']))
-        return out
+        return [(label, mapping['inverted']) for label, mapping in dl if label[0] == "D"]
 
     def _digitalmapstr(self, chars="0X"):
         m = self._digitalmap()
@@ -881,9 +875,10 @@ class Pedlbrd(object):
                 if not ok:
                     self.stop()
                     break
+                # stupid optimizations
                 s = self._serialconnection
                 s_read = s.read
-                _ord = ord
+                _ord, _len = ord, len
                 send_osc_ui   = self._send_osc_ui
                 send_osc_data = self._send_osc_data
                 last_heartbeat = bgtask_lastcheck = last_idle = button_pressed_time = time_time()
@@ -896,20 +891,16 @@ class Pedlbrd(object):
                 while self._running:
                     now = time_time()
                     b = s_read(1)
-                    if not len(b):
+                    if not _len(b):
+                        # If we are doind the OSC in sync, we check at each timeout and after a checkinterval
+                        # whenever the connection is active
+                        if osc_recv_inside_loop:
+                            self._oscserver.recv(0)
                         # Connection Timed Out. Time to do idle work
                         if (now - last_idle) > idle_threshold:
                             sendraw = self._sendraw
                             self._midioutports_check_changed()
                             last_idle = now
-                        #if (now - last_sent_heartbeat) > send_heartbeat_period:
-                        #    self.send_to_device('H')
-                        #    last_sent_heartbeat = now
-                        
-                        # If we are doind the OSC in sync, we check at each timeout and after a checkinterval
-                        # whenever the connection is active
-                        if osc_recv_inside_loop:
-                            self._oscserver.recv(0)
                         continue
                     b = _ord(b)
                     if not(b & 0b10000000):
@@ -940,7 +931,7 @@ class Pedlbrd(object):
                     # -------------
                     elif cmd == 68: # --> D(igital)
                         msg = s_read(2)
-                        if len(msg) != 2:
+                        if _len(msg) != 2:
                             self.logger.debug('timed out while parsing digital message, dropping it')
                             continue
                         param = _ord(msg[0])
@@ -964,14 +955,14 @@ class Pedlbrd(object):
                             self._notify_connected()
                             self._get_device_info()
                             connected = True
-                        if osc_forward_heartbeat:
-                            send_osc_ui('/heartbeat')
+                        #if osc_forward_heartbeat:
+                        #    send_osc_ui('/heartbeat')
                     # -------------
                     #   BUTTON
                     # -------------
                     elif cmd == 66: # --> B(utton)
                         msg = s_read(2)
-                        if len(msg) != 2:
+                        if _len(msg) != 2:
                             self.logger.debug('serial BUTTON: timed out while parsing button message, dropping it')
                             continue
                         param = _ord(msg[0])
@@ -982,8 +973,8 @@ class Pedlbrd(object):
                             self.calibrate_digital()
                             if now - button_pressed_time > button_short_click:
                                 self.reset_state()
-                        send_osc_ui('/button', param, value)
-                        send_osc_data('/button', param, value)
+                        # send_osc_ui('/button', param, value)
+                        # send_osc_data('/button', param, value)
 
                     # -------------
                     #    REPLY
@@ -2005,7 +1996,7 @@ class ForwardReply(object):
         self.bytes = bytes
         self.postfunc = postfunc
 
-class AnalogPin(_namedtuple('AnalogPin', 'pin resolutionbits smoothing filtertype denoise')):
+class AnalogPin(namedtuple('AnalogPin', 'pin resolutionbits smoothing filtertype denoise')):
     @classmethod
     def fromdata(cls, data):
         pin, resolutionbits, smoothing, filtertype, denoise = map(ord, data)
