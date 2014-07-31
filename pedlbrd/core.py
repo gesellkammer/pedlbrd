@@ -339,6 +339,7 @@ class Pedlbrd(object):
         self._oscapi = None
         self._midichannel = -1
         self._midithrough_ports = set()
+        self._midithrough_index = 0 # <--------- this reflects the last selected midithrough port
         self._ip = None
         self._callbackreg = {}
         self._first_conn = True
@@ -1229,6 +1230,7 @@ class Pedlbrd(object):
             self._midiout = None
 
     def _midithrough_set(self, wildcard_or_index, value):
+        self._midithrough_index = wildcard_or_index+1 # 0 is no ports selected
         if value == 1:
             if wildcard_or_index not in self._midithrough_ports:
                 print "connecting to", wildcard_or_index
@@ -1409,6 +1411,10 @@ class Pedlbrd(object):
            value: 1 to enable, 0 to disable
         """
         self._midithrough_set(wildcard_or_index, value)
+
+    def cmd_midithrough_get(self, src, reply_id):
+        self.logger.debug("/midithrough/get  --> %d" % self._midithrough_index)
+        return self._midithrough_index
 
     def cmd_midioutports_get(self, src, reply_id):
         self.logger.debug("midioutports: %s" % ", ".join(self._midiout.ports))

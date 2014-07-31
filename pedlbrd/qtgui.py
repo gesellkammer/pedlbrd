@@ -102,6 +102,9 @@ class OSCThread(QThread):
         print "new midiports!", ports
         invoke_in_main_thread(self.gui._update_midiports, ports)
 
+    def cmd_midithrough(self, index):
+        self.gui.midithrough_set(index, notifycore=False, updategui=True)
+
     def cmd_data_D(self, pin, value):
         self.gui.digpins[pin-1].setValue(value)
     
@@ -382,16 +385,17 @@ class Pedlbrd(QWidget):
         self.layout.addLayout(button_box)
 
     def post_init(self):
+        print("--------------------- post_init")
         self.get_midiports()
-        def callback(status):
+        def status_callback(status):
             self.set_status(status)
-        self.osc_thread.get_mainthread('status', callback)
+        def midithrough_callback(index):
+            self.midithrough_set(index, notifycore=False, updategui=True)
+        self.osc_thread.get_mainthread('status', status_callback)
+        self.osc_thread.get('midithrough', midithrough_callback)
 
     def _update_midiports(self, ports):
-        # print("fetch_midiports: got ports %s" % str(ports))
-        print("----------------- fetch_midiports: got ports %s" % str(ports))
         if ports != self._midiports:
-            print("midiports changed")
             # Remove old items in combobox
             numitems = self.midiports_combo.count()
             if numitems > 1:
@@ -485,26 +489,15 @@ class Pedlbrd(QWidget):
     def action_midithrough(self, index):
         self.midithrough_set(index)
 
-    def midithrough_set(self, index):
-        if index != self._midithrough_index:
-            self.osc_thread.sendosc('/midithrough/set', self._midithrough_index - 1, 0)
-        if index > 0:
-            self.call_later(100, lambda:self.osc_thread.sendosc('/midithrough/set', index-1, 1))
+    def midithrough_set(self, index, updategui=False, notifycore=True):
+        if notifycore:
+            if index != self._midithrough_index:
+                self.osc_thread.sendosc('/midithrough/set', self._midithrough_index - 1, 0)
+            if index > 0:
+                self.call_later(100, lambda:self.osc_thread.sendosc('/midithrough/set', index-1, 1))
         self._midithrough_index = index
-
-
-        #if self._midithrough_index is not None:
-        #    if index == 0:
-        #        self.osc_thread.sendosc('/midithrough/set', self._midithrough_index, 0)
-        #        self._midithrough_index = -1
-        #    else:
-        #        self.osc_thread.sendosc('/midithrough/set', self._midithrough_index, 0)
-        #        self._midithrough_index = index - 1
-        #        self.call_later(100, lambda:self.osc_thread.sendosc('/midithrough/set', index-1, 1))
-        #else:
-        #    if index > 0:
-        #        self._midithrough_index = index - 1
-        #        self.osc_thread.sendosc('/midithrough/set', index-1, 1)
+        if updategui:
+            invoke_in_main_thread(self.midiports_combo.setCurrentIndex, index)
 
     def call_later(self, ms, action):
         QTimer.singleShot(ms, action)
