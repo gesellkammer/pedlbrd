@@ -1456,8 +1456,7 @@ class Pedlbrd(object):
                 self.report(log=True)
             self.logger.debug("registering ui addr -> %s" % str(addr))
 
-    def cmd__registerdata(self, path, args, types, src, report=True):
-        """Register for data. optional arg: address to register"""
+    def _registerdata(self, path, args, types, src, report=True):
         addresses = self.config.get('osc_data_addresses', [])
         addr = _oscmeta_get_addr(args, src)
         self.logger.debug("registering addr for data: %s" % str(addr))
@@ -1468,13 +1467,16 @@ class Pedlbrd(object):
             if report:
                 self.report(log=True)
 
-    def cmd__registerall(self, path, args, types, src):
-        """Register to receive data and notifications. Optional: port to register (defaults to sending port)"""
-        self.cmd__registerdata(path, args, types, src, report=False)
-        self.cmd__registerui(path, args, types, src, report=True)
+    def cmd__registerdata(self, path, args, types, src, report=True):
+        """Register for data. Optional arg: address to register. Call /signout to stop receiving data"""
+        return self._registerdata(path, args, types, src, report=report)
+
+    def cmd__register(self, path, args, types, src, report=True):
+        """Alias to /registerdata. Call /signout to stop"""
+        return self._registerdata(path, args, types, src, report=report)
 
     def cmd__signout(self, path, args, types, src):
-        """Remove observer. Optional: port to signout (defaults to sending port)"""
+        """Remove observer. Optional: port to signout (defaults to sending port)."""
         addr = _oscmeta_get_addr(args, src)
         ui_addresses = self.config['osc_ui_addresses']
         data_addresses = self.config['osc_data_addresses']
@@ -1486,7 +1488,7 @@ class Pedlbrd(object):
             self.config.set('osc_data_addresses', data_addresses)
 
     def cmd_api_get(self, src, reply_id, show=0):
-        """{i} replies with a list of api commands"""
+        """{i} Replies with a list of api commands"""
         args = []
         print "/api/get"
         def sanitize(arg):

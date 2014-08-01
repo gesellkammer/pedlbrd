@@ -65,7 +65,8 @@ class OSCThread(QThread):
             addr = liblo.Address(pedlbrd_address)
         self.pedlbrd_address = addr
         self.register_osc_methods()
-        self.s.send(self.pedlbrd_address, '/registerall')
+        self.s.send(self.pedlbrd_address, '/register')
+        self.s.send(self.pedlbrd_address, '/registerui')
         self.gui = gui
         self._heartbeat_counter = 0
         self._reply_callbacks = {}
