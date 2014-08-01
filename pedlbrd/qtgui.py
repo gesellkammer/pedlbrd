@@ -73,6 +73,8 @@ class OSCThread(QThread):
         self._last_replyid = 0
         self._last_time_anpin = [0, 0, 0, 0]
         self._analog_value = [0, 0, 0, 0]
+        #self._slider_update = [self.gui.anpins[i].setValue for i in range(4)]
+
 
     def register_osc_methods(self):
         cmds = [(a, getattr(self, a)) for a in dir(self) if a.startswith('cmd_')]
@@ -84,8 +86,9 @@ class OSCThread(QThread):
         
     def run(self):
         self._exiting = False
-        while self.isRunning() and not self._exiting:
-            self.s.recv(50)
+        recv = self.s.recv
+        while not self._exiting: # self.isRunning() and not self._exiting:
+            recv(100)
 
     def stop(self):
         self._exiting = True
@@ -114,7 +117,7 @@ class OSCThread(QThread):
         self.gui.digpins[pin-1].setValue(value)
     
     def cmd_data_A(self, pin, value, rawvalue):
-        self.gui.anpins[pin - 1].setValue(value)
+        self.gui.anpins[pin-1].setValue(value)
 
     def _get(self, param, callback, args, in_main_thread):
         path = "/%s/get" % param
@@ -194,7 +197,8 @@ class Slider(QWidget):
     
     def setValue(self, value):
         #if value != self._value:
-        if abs(value*512-self._value*512) >= 1:
+        h = self._height
+        if abs(value*h-self._value*h) >= 1:
             self._dirty = True
             self._value = value
         
@@ -255,7 +259,6 @@ class Pedlbrd(QWidget):
         self._subprocs = {}
         self.conn_status = None
         self.osc_thread = OSCThread(self, pedlbrd_address=pedlbrd_address)
-        self.osc_thread.start()
         self._polltimer_updaterate = MAXIMUM_UPDATE_RATE
         self.setWindowIcon(QIcon('assets/pedlbrd-icon.png'))
         self._midiports = []
@@ -264,6 +267,7 @@ class Pedlbrd(QWidget):
         # -----------------------------------------------
         self.setup_widgets()
         self.create_polltimer()
+        self.osc_thread.start()
         self.call_later(1000, self.post_init)
         
     def create_polltimer(self):
