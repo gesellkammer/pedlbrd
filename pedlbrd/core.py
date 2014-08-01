@@ -262,7 +262,9 @@ class MIDI_Mapping(object):
         cc = mapping['cc']
         def func(x):
             # a func should return either a msg or None. x is 0. - 1.
-            value = int(x * 127)
+            value = int(x * 127+0.5)
+            if value > 127:
+                value = 127
             lastvalue = lastvalues[pin]
             if value == lastvalue:
                 return None
@@ -750,6 +752,7 @@ class Pedlbrd(object):
             return None
         midifunc = self._midi_mapping.construct_func(label)
         midiout = self._midiout
+        sendmidi = midiout.send_message
         # ----------------------
         # Digital
         # ----------------------
@@ -766,7 +769,6 @@ class Pedlbrd(object):
                 raise KeyError("cc definition not present")
             _, out1 = input_mapping['midi']['output']
             byte1 = 176 + midichan
-            sendmidi = midiout.send_message
             kind, pin = self.label2pin(label)
             def callback(value):
                 if inverted:
@@ -780,7 +782,6 @@ class Pedlbrd(object):
         # Analog
         # --------------
         if label[0] == "A":
-            sendmidi = midiout.send_message
             kind, pin = self.label2pin(label)
             #normalize = self._normalize
             normalize = self._gen_normalize(pin)
@@ -818,9 +819,9 @@ class Pedlbrd(object):
         for handler in self._handlers.items():
             handler.cancel()
         self._handlers = {}
-        self._handlers['save_env'] = self._call_regularly(11, self._save_env)
+        self._handlers['save_env'] = self._call_regularly(23, self._save_env)
         time.sleep(0.5)
-        autosave_config_period = self.config.setdefault('autosave_config_period', 21)
+        autosave_config_period = self.config.setdefault('autosave_config_period', 31)
         if autosave_config_period:
             self._handlers['save_config'] = self._call_regularly(autosave_config_period, self._save_config, kws={'autosave':False})
         #self._handlers['midioutports_changed'] = self._call_regularly(3, self._midioutports_check_changed)
@@ -863,6 +864,9 @@ class Pedlbrd(object):
         button_short_click    = self.config['reset_click_duration']
         osc_forward_heartbeat = self.config['osc_forward_heartbeat']
 
+        if osc_recv_inside_loop:
+            oscrecv = self._oscserver.recv
+
         self.logger.info("\n>>> started listening!")
         def serial_read(serial, numbytes):
             msg = serial.read(numbytes)
@@ -892,10 +896,11 @@ class Pedlbrd(object):
                     now = time_time()
                     b = s_read(1)
                     if not _len(b):
-                        # If we are doind the OSC in sync, we check at each timeout and after a checkinterval
+                        # If we are doing the OSC in sync, we check at each timeout and after a checkinterval
                         # whenever the connection is active
                         if osc_recv_inside_loop:
-                            self._oscserver.recv(0)
+                            #self._oscserver.recv(0)
+                            oscrecv(0)
                         # Connection Timed Out. Time to do idle work
                         if (now - last_idle) > idle_threshold:
                             sendraw = self._sendraw
@@ -909,7 +914,8 @@ class Pedlbrd(object):
                     if (now - bgtask_lastcheck) > bgtask_checkinterval:
                         bgtask_lastcheck = now
                         if osc_recv_inside_loop:
-                            self._oscserver.recv(0)
+                            #self._oscserver.recv(0)
+                            oscrecv(0)
                     cmd = b & 0b01111111
                     # -------------
                     #   ANALOG
@@ -1158,16 +1164,15 @@ class Pedlbrd(object):
         if self._analog_autorange[pin]:
             def func(value):
                 maxvalue = maxvalues[pin]
-                minvalue = minvalues[pin]
-                if minvalue <= value <= maxvalue:
-                    value2 = (value - minvalue) / (maxvalue - minvalue)
-                elif value > maxvalue:
+                if value > maxvalue:
                     maxvalues[pin] = value
-                    value2 = 1
+                    return 1
+                minvalue = minvalues[pin]
+                if value >= minvalue:
+                    return (value - minvalue) / (maxvalue - minvalue)
                 else:
                     minvalues[pin] = value
-                    value2 = 0
-                return value2
+                    return 0
         else:
             def func(value):
                 maxvalue = maxvalues[pin]
@@ -1261,9 +1266,9 @@ class Pedlbrd(object):
             out = False
         else:
             self._notify_disconnected()
+            self.logger.debug("....looking for device")
             while self._running:
                 try:
-                    self.logger.debug("....looking for port")
                     port = detect_port()
                     if port:
                         self._serialport = port
@@ -1308,15 +1313,13 @@ class Pedlbrd(object):
     def _midioutports_check_changed(self, notify=True):
         self.logger.debug(">>>> checking midioutports")
         portsnow = set(self._midiout.ports)
-        #portsnow = set(rtmidi.get_out_ports())
         if portsnow != self._midioutports:
-            self.logger.debug("midioutports changed: %s" % str(portsnow))
             self._midioutports = portsnow
+            self.logger.debug("midioutports changed: %s" % str(portsnow))
             if notify:
-                #self._call_later(0.2, self._send_osc_data, ("/midioutports", self._midioutports)))
+                #self._call_later(0.1, lambda:self._send_osc_data("/midioutports", *self._midioutports))
                 self._send_osc_data("/midioutports", *self._midioutports)
             return True
-        self.logger.debug("no change. ports now: %s" % ",".join(portsnow))
         return False
 
     def _new_replyid(self):

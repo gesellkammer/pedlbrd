@@ -2,13 +2,17 @@ from PySide.QtCore import *
 from  PySide.QtGui import *
 import sys, os, time, subprocess
 import liblo
-import Queue
 import logging
 import time
 
 global qt_app
 
+# -------------- CONFIGURATION ------------------------------
+
+MAXIMUM_UPDATE_RATE = 12
 LOGPATH = '~/.log/pedlbrd-gui.log'
+
+# -----------------------------------------------------------
 
 LOGPATH = os.path.expanduser(LOGPATH)
 LOGDIR = os.path.split(LOGPATH)[0]
@@ -155,15 +159,18 @@ class OSCThread(QThread):
 ## /////////// WIDGETS
 
 class Slider(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, index, parent=None):
         super(Slider, self).__init__(parent)
+        self._index = index
         self._value = 0
         pen = QPen()
         pen.setColor(QColor(50, 50, 50, 50))
-        pen.setWidth(4)
+        pen.setWidth(0)
         self._pen = pen
         self._coloroff = QColor(240, 240, 240)
         self._coloron  = QColor(80, 10, 255)
+        self._height = self.height()
+        self._width = self.width()
         self._dirty = False
     
     def minimumSizeHint(self):
@@ -173,21 +180,20 @@ class Slider(QWidget):
         return QSize(8, 100)
     
     def paintEvent(self, event):
-        p = QPainter()
-        p.begin(self)
-        p.setPen(self._pen)
-        p.setBrush(self._coloroff)
         h = self.height()
         w = self.width()
         y = h * (1-self._value)
-        p.drawRect(0, 0, w, y)
+        p = QPainter(self)
+        p.setPen(self._pen)
+        p.setBrush(self._coloroff)
+        p.drawRect(0, 0, w-1, y-1)
         p.setBrush(self._coloron)
         p.drawRect(0, y, w, h-y)
-        p.end()
         self._dirty = False
     
     def setValue(self, value):
-        if value != self._value:
+        #if value != self._value:
+        if abs(value*512-self._value*512) >= 1:
             self._dirty = True
             self._value = value
         
@@ -199,8 +205,9 @@ class BigCheckBox(QWidget):
         self.value = 0
         self._pen = pen = QPen()
         pen.setColor(QColor(50, 50, 50, 50))
-        pen.setWidth(4)
+        pen.setWidth(2)
         self._brushes = (QColor(240, 240, 240), QColor(255, 0, 0))
+        self.firstpaint = True
 
     def minimumSizeHint(self):
         return QSize(self._size, self._size)
@@ -208,7 +215,11 @@ class BigCheckBox(QWidget):
     def get_center(self):
         size = self.size()
         w, h = size.width(), size.height()
-        return w * 0.5, h*0.5
+        cx = w*0.5
+        cy = h*0.5
+        center = (cx, cy)
+        self._center = center
+        return center
 
     def setValue(self, value):
         if value != self.value:
@@ -216,11 +227,15 @@ class BigCheckBox(QWidget):
             self._dirty = True
 
     def paintEvent(self, event):
+        r = self._size * 0.5
+        if self.firstpaint:
+            cx, cy = self.get_center()
+            self.firstpaint = False
+        else:
+            cx, cy = self._center
         p = QPainter()
         pen = self._pen
         p.begin(self)
-        cx, cy = self.get_center()
-        r = self._size * 0.5
         p.setPen(pen)
         p.setBrush(self._brushes[self.value>0])
         p.drawRect(cx-r, cy-r, self._size, self._size)
@@ -240,9 +255,10 @@ class Pedlbrd(QWidget):
         self.conn_status = None
         self.osc_thread = OSCThread(self, pedlbrd_address=pedlbrd_address)
         self.osc_thread.start()
-        self._polltimer_updaterate = 12
+        self._polltimer_updaterate = MAXIMUM_UPDATE_RATE
         self.setWindowIcon(QIcon('assets/pedlbrd-icon.png'))
         self._midiports = []
+        self._analog_dirty = [False, False, False, False, False, False]
 
         # -----------------------------------------------
         self.setup_widgets()
@@ -262,7 +278,6 @@ class Pedlbrd(QWidget):
         new_status = "ACTIVE"
         if self.conn_status != new_status:
             invoke_in_main_thread(self.update_status)
-            #self.update_status()
         self.set_status("ACTIVE")
         
     def update_status(self):
@@ -295,7 +310,6 @@ class Pedlbrd(QWidget):
         self.status = QLabel('...', self)
         form_layout.addRow('STATUS', self.status)
 
-        #osc_in = "%s:%d" % self._pedlbrd_address
         osc_in = str(self._pedlbrd_address[1])
         form_layout.addRow('OSC IN', QLabel(osc_in))
 
@@ -349,14 +363,19 @@ class Pedlbrd(QWidget):
         grid = QGridLayout()
         self.digpins = chks
         grid.setSpacing(2)
-        positions = ((0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2), (2, 0), (2, 1), (2, 2), (3, 1))
+        positions = (
+            (0, 0), (0, 1), (0, 2),
+            (1, 0), (1, 1), (1, 2),
+            (2, 0), (2, 1), (2, 2),
+                    (3, 1)
+        )
         for chk, position in zip(chks, positions):
             x, y = position
             grid.addWidget(chk, x, y)
         grid0.addLayout(grid, 0, 0)
         
         # Sliders
-        sliders = [Slider() for i in range(4)]
+        sliders = [Slider(i) for i in range(4)]
         self.anpins = sliders
         slider_grid = QGridLayout()
         for i, slider in enumerate(sliders):
@@ -387,9 +406,12 @@ class Pedlbrd(QWidget):
     def post_init(self):
         print("--------------------- post_init")
         self.get_midiports()
-        self.osc_thread.get('status', lambda status: invoke_in_main_thread(self.set_status, status))
-        self.osc_thread.get('midithrough', lambda index: self.midithrough_set(index, notifycore=False, updategui=True))
-        self.osc_thread.get('midichannel', lambda chan: invoke_in_main_thread(self.midichannel_combo.setCurrentIndex, chan))
+        self.osc_thread.get('status',
+                            lambda status: invoke_in_main_thread(self.set_status, status))
+        self.osc_thread.get('midithrough',
+                            lambda index: self.midithrough_set(index, notifycore=False, updategui=True))
+        self.osc_thread.get('midichannel',
+                            lambda chan: invoke_in_main_thread(self.midichannel_combo.setCurrentIndex, chan))
 
     def _update_midiports(self, ports):
         if ports != self._midiports:
