@@ -172,7 +172,9 @@ class Slider(QWidget):
         pen.setWidth(0)
         self._pen = pen
         self._coloroff = QColor(240, 240, 240)
-        self._coloron  = QColor(80, 10, 255)
+        #self._coloron  = QColor(80, 10, 255)
+        #self._coloron = QColor(136, 64, 166)
+        self._coloron = QColor(0, 180, 255)
         self._height = self.height()
         self._width = self.width()
         self._dirty = False
@@ -211,7 +213,8 @@ class BigCheckBox(QWidget):
         self._pen = pen = QPen()
         pen.setColor(QColor(50, 50, 50, 50))
         pen.setWidth(2)
-        self._brushes = (QColor(240, 240, 240), QColor(255, 0, 0))
+        #self._brushes = (QColor(240, 240, 240), QColor(255, 0, 0))
+        self._brushes = (QColor(240, 240, 240), QColor(0, 180, 255))
         self.firstpaint = True
 
     def minimumSizeHint(self):
