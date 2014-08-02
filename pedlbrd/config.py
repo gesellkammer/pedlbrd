@@ -34,7 +34,7 @@ DEFAULT_CONFIG = {
 	'osc_forward_heartbeat': False,
 	'sync_bg_checkinterval': 0.2,
 	'idle_threshold' : 3,
-	'serialtimeout_async': 0.25,
+	'serialtimeout_async': 0.1,
 	'serialtimeout_sync' : 0.1,
 	'stop_on_keyboard_interrupt' : True,
 	'force_device_info_when_reconnect': False,  # When reconnecting, should we ask again for the device info? (this should not change between connects)

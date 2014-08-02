@@ -12,6 +12,7 @@ import inspect
 import fnmatch
 import json
 from collections import namedtuple
+from Queue import Queue
 
 # dependencies
 import timer2
@@ -325,14 +326,16 @@ class Pedlbrd(object):
         self._labels = self.config['input_definition'].keys()
         self._running = False
         self._status  = ''
-        self._analog_resolution = [DEFAULTS['max_analog_value'] for i in range(16)]
+        self._num_analog_pins = 6
+        self._num_digital_pins = 12
+        self._analog_resolution_per_pin = [DEFAULTS['max_analog_value'] for i in range(self._num_analog_pins)]
         self._midiout = None
         self._midioutports = set()
         self._oscasync = oscasync if oscasync is not None else self.config['osc_async']
         self._serialtimeout = self.config['serialtimeout_async'] if oscasync else self.config['serialtimeout_sync']
         self._dispatch_funcs_by_pin = {}
-        self._analog_funcs  = [None for i in range(16)]
-        self._digital_funcs = [None for i in range(64)]
+        self._analog_funcs  = [None for i in range(self._num_analog_pins)]
+        self._digital_funcs = [None for i in range(self._num_digital_pins)]
         self._handlers = {}
         self._serialconnection = None
         self._oscserver = None
@@ -343,7 +346,7 @@ class Pedlbrd(object):
         self._ip = None
         self._callbackreg = {}
         self._first_conn = True
-        self._digitalinput_needs_calibration = [False for i in range(64)]
+        self._digitalinput_needs_calibration = [False for i in range(self._num_digital_pins)]
         self._osc_data_addresses = []
         self._osc_ui_addresses = []
         self._replyid = 0
@@ -421,13 +424,23 @@ class Pedlbrd(object):
 
     def reset_state(self):
         # TODO: load state from json file
+
+        #def seq_set(seq, value):
+        #    for i in range(len(seq)):
+        #        seq[i] = value
+        self.logger.debug("reset_state --> resetting")
+        self._analog_minvalues = [resolution for resolution in self._analog_resolution_per_pin]
+        self._analog_maxvalues = [1] * self._num_analog_pins
+        self._analog_autorange = [1] * self._num_analog_pins
         self._midi_mapping = MIDI_Mapping(self.config)
-        self._analog_minvalues = [analog_resolution for analog_resolution in self._analog_resolution]
-        self._analog_maxvalues = [1 for i in range(len(self._analog_minvalues))]
-        self._analog_autorange = [1 for i in range(len(self._analog_minvalues))]
         self._input_labels = self.config['input_mapping'].keys()
         self._send_osc_ui('/notify/reset')
         self._led_pattern(15, 50, 45)
+        if self._running:
+            self.logger.debug("putting RESET in the queue")
+            self._msgqueue.put_nowait("RESET")
+        else:
+            self.logger.debug("finished reset, mainloop is not running")
 
     def find_device(self, retry_period=0):
         """
@@ -667,7 +680,7 @@ class Pedlbrd(object):
                 else:
                     normalize = ""
                     maxvalue = ""
-                in0, in1 = 0, self._analog_resolution[pin]
+                in0, in1 = 0, self._analog_resolution_per_pin[pin]
                 out0, out1 = 0, 127
                 l = "%s    | %s  CH %2d  CC %3d  (%3d - %4d) -> (%3d - %3d)  %s %s" % (label.ljust(3), normalize.ljust(col2),
                                                                                        midi['channel'], midi['cc'], in0, in1, out0, out1, maxvalue, minvalue)
@@ -791,6 +804,9 @@ class Pedlbrd(object):
             def callback(value):
                 #normvalue = normalize(pin, value)
                 normvalue = normalize(value)
+                # normalize returns -1 if the pin is not active
+                if normvalue < 0:
+                    return
                 msg = midifunc(normvalue)
                 if msg:
                     sendmidi(msg)
@@ -842,8 +858,9 @@ class Pedlbrd(object):
             th.start()
             return
 
+        self._msgqueue = Queue()
         self._midi_turnon()
-        self._update_dispatch_funcs()
+
         self._update_handlers()
 
         config       = self.config
@@ -889,23 +906,31 @@ class Pedlbrd(object):
                 last_sent_heartbeat = 0
                 send_heartbeat_period = 0.33
                 connected = True
+                needs_reset = False
                 sendraw = self._sendraw
+                # CACHE
+                self._update_dispatch_funcs()
                 analog_funcs  = self._analog_funcs
                 digital_funcs = self._digital_funcs
                 while self._running:
-                    now = time_time()
                     b = s_read(1)
+                    now = time_time()
                     if not _len(b):
-                        # If we are doing the OSC in sync, we check at each timeout and after a checkinterval
-                        # whenever the connection is active
+                        # serial timedout: IDLE
                         if osc_recv_inside_loop:
-                            #self._oscserver.recv(0)
                             oscrecv(0)
-                        # Connection Timed Out. Time to do idle work
                         if (now - last_idle) > idle_threshold:
                             sendraw = self._sendraw
                             self._midioutports_check_changed()
                             last_idle = now
+                        if not self._msgqueue.empty():
+                            msg = self._msgqueue.get()
+                            if msg == "RESET":
+                                self.logger.debug("******** got RESET message")
+                                needs_reset = True
+                                break
+                            else:
+                                self.logger.error("got unknown message in the msgqueue: %s" % str(msg))
                         continue
                     b = _ord(b)
                     if not(b & 0b10000000):
@@ -914,7 +939,6 @@ class Pedlbrd(object):
                     if (now - bgtask_lastcheck) > bgtask_checkinterval:
                         bgtask_lastcheck = now
                         if osc_recv_inside_loop:
-                            #self._oscserver.recv(0)
                             oscrecv(0)
                     cmd = b & 0b01111111
                     # -------------
@@ -961,8 +985,6 @@ class Pedlbrd(object):
                             self._notify_connected()
                             self._get_device_info()
                             connected = True
-                        #if osc_forward_heartbeat:
-                        #    send_osc_ui('/heartbeat')
                     # -------------
                     #   BUTTON
                     # -------------
@@ -979,9 +1001,6 @@ class Pedlbrd(object):
                             self.calibrate_digital()
                             if now - button_pressed_time > button_short_click:
                                 self.reset_state()
-                        # send_osc_ui('/button', param, value)
-                        # send_osc_data('/button', param, value)
-
                     # -------------
                     #    REPLY
                     # -------------
@@ -1031,7 +1050,7 @@ class Pedlbrd(object):
                             self._device_info.update(info)
                             self._apply_callback(replyid, info)
                             for pin in analog_pins:
-                                self._analog_resolution[pin.pin] = pin.resolution
+                                self._analog_resolution_per_pin[pin.pin] = pin.resolution
                             print info
                         except IOError:
                             self.logger.error("serial INFO: error reading from serial (probably timed out)")
@@ -1055,8 +1074,11 @@ class Pedlbrd(object):
                             self.logger.info('>>>>>> ' + msg)
                         except IOError:
                             self.logger.error("serial MESSAGE: error reading from serial (probably timed out)")
-                # we stopped
-                break
+                self.logger.debug("---------------> out of inner loop")
+                if needs_reset:
+                    continue
+                else:
+                    break
             except KeyboardInterrupt:   # poner una opcion en config para decidir si hay que interrumpir por ctrl-c
                 print "keyboard interrupt!"
                 if self.config['stop_on_keyboard_interrupt']:
@@ -1164,15 +1186,18 @@ class Pedlbrd(object):
         if self._analog_autorange[pin]:
             def func(value):
                 maxvalue = maxvalues[pin]
+                minvalue = minvalues[pin]
                 if value > maxvalue:
                     maxvalues[pin] = value
-                    return 1
-                minvalue = minvalues[pin]
-                if value >= minvalue:
-                    return (value - minvalue) / (maxvalue - minvalue)
+                    value = 1
+                elif value >= minvalue:
+                    value = (value - minvalue) / (maxvalue - minvalue)
                 else:
                     minvalues[pin] = value
-                    return 0
+                    value = 0
+                if maxvalue - minvalue > 10:
+                    return value
+                return -1
         else:
             def func(value):
                 maxvalue = maxvalues[pin]
@@ -1609,7 +1634,7 @@ class Pedlbrd(object):
 
     def _analogmaxval_set(self, analoginput, value):
         pin = analoginput - 1
-        if value > self._analog_resolution[pin]:
+        if value > self._analog_resolution_per_pin[pin]:
             self.logger.error("analogmaxval: Value outside range")
             return
         try:
@@ -1701,7 +1726,7 @@ class Pedlbrd(object):
 
     def cmd_analogresolution_get(self, src, reply_id, analoginput):
         pin = analoginput - 1
-        return self._analog_resolution[pin]
+        return self._analog_resolution_per_pin[pin]
 
     def cmd_updateperiod_get(self, src, reply_id):
         return ForwardReply(('G', 'U'))
@@ -1710,7 +1735,7 @@ class Pedlbrd(object):
         """{ii} Set the analog resolution of a pin (value between 255-2047)"""
         pin = analoginput - 1
         if 255 <= value <= 2047:
-            self._analog_resolution[pin] = value
+            self._analog_resolution_per_pin[pin] = value
             self.send_to_device(('S', 'A', pin) + int14tobytes(value))
 
     def cmd_blinking_get(self, src, replyid):
