@@ -890,6 +890,7 @@ class Pedlbrd(object):
             if len(msg) != numbytes:
                 raise IOError
             return msg
+        self._update_dispatch_funcs()
         while self._running:
             try:
                 ok = self._connect()
@@ -1438,6 +1439,21 @@ class Pedlbrd(object):
     def cmd_midioutports_get(self, src, reply_id):
         self.logger.debug("midioutports: %s" % ", ".join(self._midiout.ports))
         return self._midiout.ports
+
+    def cmd_simulate(self, pin, value):
+        """Simulate the value of a pin. A0-A3, D0-D9"""
+        self.logger.debug("simulate got: %s" % str([pin, value]))
+        self._update_dispatch_funcs()
+        kind = pin[0]
+        pin_number = int(pin[1:])
+        if kind == 'A' and pin_number < (len(self._analog_funcs) - 1):
+            func = self._analog_funcs[pin_number]
+            if func:
+                func(value)
+            else:
+                self.logger.debug("no analog function for the given pin")
+        else:
+            self.logger.debug("Wrong pin: got %s" % pin)
 
     def cmd_testblink(self, numblink, period, dur):
         """{iii}Produce a blink pattern on the device"""
