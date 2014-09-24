@@ -10,19 +10,6 @@ logger = logging.getLogger("pedlbrd.py")
 
 PORT_UNSET = -1
 
-def with_gui(coreport):
-    """create the core process and a gui on the local machine, on the same process"""
-    logger.debug("with gui")
-    # from pedlbrd import gui
-    from pedlbrd import qtgui as gui
-
-    p = get_core(coreport)
-    p.start(async=True)
-    try:
-        gui.start(('localhost', p.config['osc_port'])) # TODO
-    finally:
-        p.stop()
-
 def detached_gui(coreport):
     """create the core process and a gui on the local machine, on different processes"""
     logger.debug("detached_gui")
@@ -53,10 +40,9 @@ def detached_gui_reverse(coreport):
     import subprocess, time
     from pedlbrd import qtgui as gui
     core_manager = subprocess.Popen(args=[sys.executable, 'pedlbrd.py', '--nogui'])
-    # This will block until the gui quits
     logger.debug("starting gui")
-    gui.start(('localhost', 47120))
-    
+    gui.start(('localhost', 47120)) # <--- This will block until the gui quits
+    logger.debug("gui exited")
     
 def no_gui(coreport):
     """create the core process only"""
@@ -85,9 +71,9 @@ def get_core(coreport):
     try:
         if coreport == PORT_UNSET:
             # use default
-            core = pedlbrd.Pedlbrd(restore_session=False)
+            core = pedlbrd.Pedlbrd()
         else:
-            core = pedlbrd.Pedlbrd(restore_session=False, osc_port=coreport)
+            core = pedlbrd.Pedlbrd(restore_session=True, oscport=coreport)
     except pedlbrd.OSCPortUsed:
         core = None
     return core
@@ -136,6 +122,6 @@ if __name__ == '__main__':
         if DETACHED:
             detached_gui_reverse(port)
         else:
-            logger.debug("starting core and gui in single process")
-            with_gui(port)
+            logger.error("cannot start gui and mainloop in the same process")
+            sys.exit(0)
     sys.exit(0)

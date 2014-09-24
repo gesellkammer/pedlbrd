@@ -130,7 +130,6 @@ class Configuration(dict):
     when a change is made.
     It also supports subdictionaries (very similar to 'notifydict')
     """
-    __slots__ = "callback _label2pin _pin2label _callback_enabled state".split()
     def __init__(self, config, overrides=None, callback=None):
         """
         config   : (dict) The configuration dict
@@ -143,18 +142,9 @@ class Configuration(dict):
             config.update(overrides)
         self.callback = callback
         self.update(config)
-        # self._label2pin, self._pin2label = self._get_input_pin_mapping()
         self._callback_enabled = True
         self.state = {'saved':False, 'changed':True}
-
-    def label2pin(self, label):
-        return label[0], int(label[1:])
-        # return self._label2pin.get(label)
-
-    def pin2label(self, kind, pin):
-        # return self._pin2label.get((kind, pin))
-        return "%s%d" % (kind, pin)
-
+    
     def getpath(self, path):
         if isinstance(path, basestring):
             if "/" in path:
@@ -188,9 +178,10 @@ class Configuration(dict):
         d = self
         if len(keys) == 0:
             self[path] = value
+            self.state['changed'] = True
             if self._callback_enabled:
                 self.callback(path, value)
-                self.state['changed'] = True
+                
         else:
             for key in keys[:-1]:
                 v = d.get(key)
@@ -199,56 +190,24 @@ class Configuration(dict):
                 else:
                     raise KeyError("set -- key not found: [%s]" % str(key))
             d[keys[-1]] = value
+            self.state['changed'] = True
             if self._callback_enabled:
                 self.callback(path, value)
-                self.state['changed'] = True
+                
 
     def midi_mapping_for_label(self, label):
         return self['input_mapping'].get(label).get('midi')
 
 # -----------------------------------------------------------------------------------------------------
 
-def _envpath(name):
-    """
-    returns the full path (folder/name) of the env.json file
-    NB: it does not check that it exists
-    """
-    if name is None:
-        name = DEFAULTS['envname']
-    base = os.path.split(name)[1]
-    base = "%s.json" % os.path.splitext(base)[0]
-    envpath = envir.configpath()
-    return os.path.join(envpath, base)
-
-def _aspin(pin):
-    """
-    pin is either a string like D2, or a tuple ("D", 2)
-
-    returns a tuple (kind, pin)
-    """
-    if isinstance(pin, basestring):
-        kind = pin[0]
-        pin = int(pin[1:])
-        return kind, pin
-    elif isinstance(pin, tuple):
-        return pin
-    else:
-        raise ValueError("pin should be either a string or a tuple")
-
 class Pedlbrd(object):
-    def __init__(self, config=None, env=None, restore_session=None, oscasync=None, **kws):
+    def __init__(self, oscport=None, oscasync=None):
         """
-        config: (str) The name of the configuration file
-                None to use the default
-
-        restore_session: (bool) Override the directive in config
+        oscasync: run the osc loop async
         """
         envir.prepare()
+        self.config, self.configfile = self._load_config()
 
-        self.env = self._load_env(env)
-        if restore_session is None:
-            restore_session = self.env['restore_session']
-        self.config, self.configfile = self._load_config(config, kws, restore_session=restore_session)
         self._serialport = None
         self._running = False
         self._status  = ''
@@ -298,6 +257,7 @@ class Pedlbrd(object):
         if self.config.get('open_log_at_startup', False):
             self.open_log()
         REG['logger'] = self.logger
+        self.logger.debug("configfile: %s" % self.configfile)
 
     def _call_regularly(self, period, function, args=(), kws={}):
         return self._scheduler.apply_interval(period*1000, function, args, kws)
@@ -311,45 +271,11 @@ class Pedlbrd(object):
     #
     #####################################################
 
-    def open_config(self, configfile):
-        found, configfile = envir.config_find(configfile)
-        if found:
-            self.config, self.configfile = self._load_config(configfile)
-        self.reset_state()
-        self._cache_update()
-
-    def pin2label(self, kind, pin):
-        return self.config.pin2label(kind, pin)
-
-    def label2pin(self, label):
-        """
-        returns a tuple (kind, pin)
-        """
-        return self.config.label2pin(label)
-
-    def config_restore_defaults(self):
-        """
-        save the current config and load the default configuration
-
-        ==> the path of the default configuration
-        """
-        self.save_config()
-        configname = DEFAULTS['configname']
-        configpath = write_default_config(configname)
-        self.open_config(configname)
-        return configpath
-
-    def get_last_saved(self, skip_autosave=True):
-        configfolder = envir.configpath()
-        saved = [f for f in glob.glob(os.path.join(configfolder, '*.json')) if not f.startswith('_')]
-        if saved and skip_autosave:
-            saved = [f for f in saved if 'autosaved' not in f]
-        if saved:
-            lastsaved = sorted([(os.stat(f).st_ctime, f) for f in saved])[-1][1]
-            return lastsaved
-        return None
-
     def reset_state(self):
+        """
+        * Reset the normalization values for analog pins
+        * Reset the polarity of the digital pins
+        """
         self.logger.debug("reset_state --> resetting")
         self._analog_minvalues = [resolution for resolution in self._analog_resolution_per_pin]
         self._analog_maxvalues = [1] * self._num_analog_pins
@@ -362,32 +288,6 @@ class Pedlbrd(object):
             self._msgqueue.put_nowait("RESET")
         else:
             self.logger.debug("finished reset, mainloop is not running")
-
-    def _midi_construct_func(self, kind, pin):
-        def digital(pin):
-            channel = self.config.get('midichannel', 0)
-            cc = pin + 1
-            byte1 = 176 + channel
-            func = lambda x: (byte1, cc, x*127)
-            return func
-        def analog(pin):
-            lastvalues = self._midi_analog_lastvalues
-            channel = self.config.get('midichannel', 0)
-            byte1 = 176 + channel
-            cc = 101 + pin
-            def func(x):
-                value = int(x * 127+0.5)
-                if value > 127:
-                    value = 127
-                lastvalue = lastvalues[pin]
-                if value == lastvalue:
-                    return None
-                lastvalues[pin] = value
-                return (byte1, cc, value)
-            return func
-        if kind == 'D':
-            return digital(pin)
-        return analog(pin)
 
     def find_device(self, retry_period=0):
         """
@@ -449,6 +349,7 @@ class Pedlbrd(object):
             self._oscserver.send(libloaddr, path, *args)
 
     def _terminate(self):
+        self.logger.debug("- - - - - - - - >>> TERMINATE <<< - - - - - - - - ")
         if self._oscasync:
             self._oscserver.stop()
             time.sleep(0.1)
@@ -458,28 +359,13 @@ class Pedlbrd(object):
             self._serialconnection.close()
         self._midi_turnoff()
 
+        self._save_config()
+
         for handlername, handler in self._handlers.iteritems():
-            self.logger.debug('cancelling %s' % handlername)
+            self.logger.debug('cancelling handler: %s' % handlername)
             handler.cancel()
         time.sleep(0.2)
-        if self.env.get('autosave_config', True):
-            self._save_config()
-        self._save_env(force=True)
-
-    def save_config(self, newname=None):
-        """
-        save the current configuration
-
-        newname: like "save as", the newname is used for next savings
-
-        - If a config file was used, it will be saved to this name unless
-          a new name is given.
-        - If a default config was used ( Pedlbrd(config=None) ), then a default
-          name will be used.
-
-        ==> full path where the config file was saved
-        """
-        return self._save_config(newname)
+        
 
     def calibrate_digital(self):
         """
@@ -571,15 +457,6 @@ class Pedlbrd(object):
         if osc_ui:
             oscui_addresses = map(addr_to_str, osc_ui)
             lines.append("           : notifications -> %s" % " | ".join(oscui_addresses))
-        if self.config == DEFAULT_CONFIG:
-            lines.append("CONFIG     : default")
-        if self.configfile is not None:
-            found, configfile_fullpath = envir.config_find(self.configfile)
-            if found:
-                configstr = configfile_fullpath
-            else:
-                configstr = "cloned default config with name: %s (will be saved to %s)" % (self.configfile, configfile_fullpath)
-            lines.append("CONFIGFILE : %s" % configstr)
         lines.append("- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - ")
         lines.extend(self._lines_report_oscapi())
         lines.extend(self._lines_report_config())
@@ -596,57 +473,22 @@ class Pedlbrd(object):
     def _lines_report_config(self):
         return []
 
-    def _load_config(self, config=None, overrides=None, restore_session=False):
-        if config is None:
-            config = DEFAULT_CONFIG
-            if restore_session:
-                last_saved_config = self.env.get('last_saved_config')
-                if last_saved_config and os.path.exists(last_saved_config):
-                    config = last_saved_config
-
-        if isinstance(config, dict):
-            configdict = config
-            configfile = None
-        elif isinstance(config, basestring):
-            configdict = envir.config_load(config)
-            if configdict:
-                _, abspath = envir.config_find(config)
-                configfile = abspath
-                shutil.copy(configfile, _add_suffix(configfile, '(orig)'))
-            else:
-                # configuration file not found. use it as a name, load a default
-                configfile = config
-                configdict = DEFAULT_CONFIG
-        else:
-            raise TypeError("config must be either a dict or a string (or None to use default), got %s" % str(type(config)))
-
-        assert isinstance(configdict, dict) and (configfile is None or isinstance(configfile, basestring))
-        configuration = Configuration(configdict, overrides=overrides, callback=self._configchanged_callback)
+    def _load_config(self, restore_session=True):
+        """
+        returns a Configuration and the path loaded
+        """
+        configdict = DEFAULT_CONFIG
+        savedconfig, configfile = envir.config_load()
+        if savedconfig: 
+            keys_to_retrieve = [
+                "midichannel"
+            ]   
+            for key in keys_to_retrieve:
+                value = savedconfig.get(key, None)
+                if value is not None:
+                    configdict[key] = value
+        configuration = Configuration(configdict, callback=self._configchanged_callback)
         return configuration, configfile
-
-    def _load_env(self, name):
-        self._envname = name
-        envpath = _envpath(name)
-        # if it doesn't exist, we first save it
-        if not os.path.exists(envpath):
-            env = DEFAULT_ENV
-            _jsondump(env, envpath)
-        else:
-            try:
-                env = json.load(open(envpath))
-            except ValueError:
-                env = DEFAULT_ENV
-                _jsondump(env, envpath)
-        env['last_loaded_env'] = envpath
-        return ChangedDict(env)
-
-    def _save_env(self, force=False):
-        if force or self.env.changed:
-            envpath = _envpath(self._envname)
-            _jsondump(self.env, envpath)
-            self.env['last_saved_env'] = envpath
-            self.env.check()
-            self.logger.debug("saved env to " + envpath)
 
     def __del__(self):
         self.stop()
@@ -667,7 +509,6 @@ class Pedlbrd(object):
         returns a list of functions operating on the pin corresponding to
         the given label
         """
-        # midifunc = self._midi_construct_func(kind, pin)
         midiout = self._midiout
         assert midiout is not None
         sendmidi = midiout.send_message
@@ -739,11 +580,10 @@ class Pedlbrd(object):
         for handler in self._handlers.items():
             handler.cancel()
         self._handlers = {}
-        self._handlers['save_env'] = self._call_regularly(23, self._save_env)
         time.sleep(0.25)
         autosave_config_period = self.config.setdefault('autosave_config_period', 31)
         if autosave_config_period:
-            self._handlers['save_config'] = self._call_regularly(autosave_config_period, self._save_config, kws={'autosave':False})
+            self._handlers['save_config'] = self._call_regularly(autosave_config_period, self._save_config)
 
     # ***********************************************
     #
@@ -1047,34 +887,18 @@ class Pedlbrd(object):
         for address in self._osc_data_addresses:
             send(address, path, *data)
 
-    def _save_config(self, newname=None, autosave=False):
+    def _save_config(self):
         if not self.config.state['changed'] and self.config.state['saved']:
             self.logger.debug('config unchanged, skipping save')
             return
         def saveit(self=self):
-            used_configfile = self.configfile
-            defaultname = 'untitled' if self.config != DEFAULT_CONFIG else DEFAULTS['configname']
-            configfile = next(f for f in (newname, used_configfile, defaultname) if f is not None)
+            configfile = self.configfile
             assert configfile is not None
-            found, abspath = envir.config_find(configfile)
-            if autosave:
-                saved_path = _add_suffix(abspath, '--autosaved')
-            else:
-                saved_path = abspath
-            _jsondump(self.config, saved_path)
-            self.configfile = abspath
-            self.env['last_saved_config'] = abspath
-            self.logger.debug('saving to ' + abspath)
+            _jsondump(self.config, configfile)
+            self.logger.debug('save_config: saving to ' + configfile)
             self.config.state['saved'] = True
             self.config.state['changed'] = False
-        self._call_later(0, saveit)
-
-    def edit_config(self):
-        if self.configfile and os.path.exists(self.configfile):
-            # TODO
-            raise NotImplementedError("this feature is not implemented")
-        else:
-            self.logger.error("could not find a config file to edit")
+        saveit()
 
     def _gen_normalize(self, pin):
         maxvalues = self._analog_maxvalues
@@ -1349,8 +1173,8 @@ class Pedlbrd(object):
         self._call_later(0.1, self.open_log, [bool(debug)])
 
     def cmd_logfile_get(self, *args):
-        """Returns a tagged tuplet with the paths of the logfiles"""
-        return "info:debug", self.logger.filename_info, self.logger.filename_debug
+        """Returns the path to the logfile"""
+        return self.logger.filename_debug
 
     def cmd__registerui(self, path, args, types, src, report=True):
         """register for notifications. optional arg: address to register"""
@@ -1361,7 +1185,6 @@ class Pedlbrd(object):
             self.config.set('osc_ui_addresses', addresses)
             if report:
                 self.report(log=True)
-            self.logger.debug("registering ui addr -> %s" % str(addr))
 
     def _registerdata(self, path, args, types, src, report=True):
         addresses = self.config.get('osc_data_addresses', [])
@@ -1421,7 +1244,7 @@ class Pedlbrd(object):
             tags = 'label:resolution:smoothing:filtertype:denoise:autorange:minvalue:maxvalue'
             for pin in devinfo['analog_pins']:
                 self._oscserver.send(src, '/devinfo/analogpin', tags,
-                                     self.pin2label('A', pin.pin), pin.resolution, pin.smoothing, pin.filtertype, pin.denoise,
+                                     "A%d"%pin.pin, pin.resolution, pin.smoothing, pin.filtertype, pin.denoise,
                                      self._analog_autorange[pin.pin], self._analog_minvalues[pin.pin], self._analog_maxvalues[pin.pin]
                 )
         self.send_to_device(('G', 'I'), callback)
@@ -1486,18 +1309,17 @@ class Pedlbrd(object):
 
     def _analog_autorange_set(self, analoginput, value):
         """
-        analoginput : int --> 1-4 (as in A1-A4)
+        analoginput : int --> 0-3
         value : bool
         """
         if value not in (True, False):
             self.logger.error("_analog_autorange_set: value should be a bool")
             return
-        label = "A%d" % analoginput
-        pintuplet = self.label2pin(label)
+        pin = analoginput
+        label = "A%d" % pin
         if not pintuplet:
             self.logger.error("_analog_autorange_set: analoginput out of range")
             return
-        _, pin = pintuplet
         self._analog_autorange[pin] = value
         self.config.set('/input_mapping/{label}/autorange'.format(label=label), value)
 
@@ -1743,7 +1565,7 @@ class Pedlbrd(object):
             assert method is not None
             if kind == 'META':
                 # functions annotated as meta will be called directly
-                self.logger.debug('registering osc %s --> %s' % (path, method))
+                # self.logger.debug('registering osc %s --> %s' % (path, method))
                 if self._oscasync:
                     s.add_method(path, None, method)
                 else:
@@ -1865,10 +1687,6 @@ class Pedlbrd(object):
 ###############################
 # ::Helper functions
 ###############################
-
-def runcore():
-    p = Pedlbrd(autostart=False, restore_session=False)
-    p.start(async=True)
 
 class ForwardReply(object):
     def __init__(self, bytes, postfunc=None):
@@ -2011,17 +1829,12 @@ def _add_suffix(p, suffix):
 ################################
 class Log:
     def __init__(self, logname='PEDLBRD'):
-        self.filename_debug = os.path.join(envir.configpath(), "%s--debug.log" % logname)
-        self.filename_info  = os.path.join(envir.configpath(), "%s.log" % logname)
+        self.filename_debug = os.path.join(envir.basepath(), "%s--debug.log" % logname)
         debug_log = logging.getLogger('pedlbrd-debug')
         debug_log.setLevel(logging.DEBUG)
         debug_handler = logging.handlers.RotatingFileHandler(self.filename_debug, maxBytes=80*2000, backupCount=1)
         debug_handler.setFormatter( logging.Formatter('%(levelname)s: -- %(message)s') )
         debug_log.addHandler(debug_handler)
-        #class FilterDebug(object):
-        #    def filter(self, rec):
-        #        return rec.levelno != logging.INFO
-        #debug_log.addFilter(FilterDebug())
         self.logger = debug_log
 
     def debug(self, msg):

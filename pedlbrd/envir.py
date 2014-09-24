@@ -7,6 +7,8 @@ import time
 import shutil
 import serial
 
+class PlatformNotSupported(BaseException): pass
+
 #############################
 # Environment
 #############################
@@ -21,76 +23,54 @@ DEFAULT_PATHS = {
 	'win32': {}
 }
 
+def basepath():
+	return DEFAULT_PATHS.get(sys.platform).get('configpath', None)
+
 def configpath():
-	return DEFAULT_PATHS.get(sys.platform).get('configpath')
+	"""
+	return the path of the config file (a .json file)
+	"""
+	return os.path.join(basepath(), "config.json")
 
 def prepare():
-	path = configpath()
+	path = os.path.split(configpath())[0]
+	if not path:
+		raise PlatformNotSupported
 	if not os.path.exists(path):
 		os.mkdir(path)
 
-def config_find(configname):
-	"""
-	configname is a simple name or a full path
-
-	Returns 
-	=======
-
-	If config-file was found:
-	- (True, absolute_path_of_configfile)
-
-	Else:
-	- (False, absolute_path_of_configfile_to_create)
-	"""
-	folder, name = os.path.split(configname)
-	ext = os.path.splitext(name)[1]
-	if not ext:
-		name = name + '.json'
-	absfolder = os.path.split(os.path.abspath(configname))[0]
-	defaultpath = DEFAULT_PATHS.get(sys.platform).get('configpath')
-	searchpaths = [folder, absfolder, defaultpath]
-	for path in searchpaths:
-		possiblepath = os.path.join(path, name)
-		if os.path.exists(possiblepath):
-			outpath = possiblepath
-			found = True
-			break
-	else:
-		found = False
-		if folder and os.path.exists(folder):
-			outpath = os.path.join(folder, name)
-		else:
-			outpath = os.path.join(defaultpath, name)
-	return found, outpath
-
-def config_load(configfile):
+def config_load():
 	"""
 	find configfile, load it as a dictionary
+
+	returns (configdict, configfile), where
+
+	configdict: a dictionary of None
+	configfile: the file loaded
 	"""
-	assert isinstance(configfile, basestring)
-	found, configfile = config_find(configfile)
-	out = json.load(open(configfile)) if found else None
+	configfile = configpath()
+	exists = os.path.exists(configfile)
+	out = json.load(open(configfile)) if os.path.exists(configfile) else None
 	assert isinstance(out, dict) or (out is None)
-	return out
+	return out, configfile
 
 def possible_ports():
 	"""
 	return a list of possible serial ports to look for an arduino device
 	"""
 	from serial.tools import list_ports
-	if sys.platform in ('darwin', 'linux2'):
-		comports = list_ports.comports()
-		ports = [path for path, name, portid in comports if "arduino" in name.lower()]
+	comports = list_ports.comports()
+	ports = [path for path, name, portid in comports if "arduino" in name.lower()]
+	if sys.platform == 'linux2':
+		return ports
+	elif sys.platform == 'darwin':
 		# This is just hear-say, but on OSX, the tty. version of the port should be used
-		if sys.platform == 'darwin':
-			ports2 = []
-			for port in ports:
-				ttyname = port.replace("cu.", "tty.") 
-				if os.path.exists(ttyname):
-					port = ttyname
-				ports2.append(port)
-			ports = ports2
+		ports2 = []
+		for port in ports:
+			ttyname = port.replace("cu.", "tty.") 
+			if os.path.exists(ttyname):
+				port = ttyname
+			ports2.append(port)
+		return ports2
 	else:
-		print "Platform not supported!"
-		return None
-	return ports
+		raise PlatformNotSupported
