@@ -73,8 +73,6 @@ class OSCThread(QThread):
         self._last_replyid = 0
         self._last_time_anpin = [0, 0, 0, 0]
         self._analog_value = [0, 0, 0, 0]
-        #self._slider_update = [self.gui.anpins[i].setValue for i in range(4)]
-
 
     def register_osc_methods(self):
         cmds = [(a, getattr(self, a)) for a in dir(self) if a.startswith('cmd_')]
@@ -99,25 +97,24 @@ class OSCThread(QThread):
     def cmd_status(self, status):
         self.gui.set_status(status)
 
-    def cmd_heartbeat(self):
-        self.gui.on_heartbeat()
-
-    def cmd_changed_midichannel(self, label, channel):
-        if label == "*":
-            self.gui.set_midichannel(channel)
+    def cmd_changed_midichannel(self, channel):
+        self.gui.set_midichannel(channel)
 
     def cmd_midioutports(self, *ports):
-        print "new midiports!", ports
         invoke_in_main_thread(self.gui._update_midiports, ports)
 
     def cmd_midithrough(self, index):
         self.gui.midithrough_set(index, notifycore=False, updategui=True)
 
     def cmd_data_D(self, pin, value):
-        self.gui.digpins[pin-1].setValue(value)
+        gui = self.gui
+        gui._dirty = True
+        gui.digpins[pin].setValue(value)
     
     def cmd_data_A(self, pin, value, rawvalue):
-        self.gui.anpins[pin-1].setValue(value)
+        gui = self.gui
+        gui._dirty = True
+        gui.anpins[pin].setValue(value)
 
     def _get(self, param, callback, args, in_main_thread):
         path = "/%s/get" % param
@@ -172,8 +169,6 @@ class Slider(QWidget):
         pen.setWidth(0)
         self._pen = pen
         self._coloroff = QColor(240, 240, 240)
-        #self._coloron  = QColor(80, 10, 255)
-        #self._coloron = QColor(136, 64, 166)
         self._coloron = QColor(0, 180, 255)
         self._height = self.height()
         self._width = self.width()
@@ -198,7 +193,6 @@ class Slider(QWidget):
         self._dirty = False
     
     def setValue(self, value):
-        #if value != self._value:
         h = self._height
         if abs(value*h-self._value*h) >= 1:
             self._dirty = True
@@ -213,7 +207,6 @@ class BigCheckBox(QWidget):
         self._pen = pen = QPen()
         pen.setColor(QColor(50, 50, 50, 50))
         pen.setWidth(2)
-        #self._brushes = (QColor(240, 240, 240), QColor(255, 0, 0))
         self._brushes = (QColor(240, 240, 240), QColor(0, 180, 255))
         self.firstpaint = True
 
@@ -266,6 +259,7 @@ class Pedlbrd(QWidget):
         self.setWindowIcon(QIcon('assets/pedlbrd-icon.png'))
         self._midiports = []
         self._analog_dirty = [False, False, False, False, False, False]
+        self._dirty = False
 
         # -----------------------------------------------
         self.setup_widgets()
@@ -282,23 +276,19 @@ class Pedlbrd(QWidget):
         self.reset_digital_pins()
         self.update_status()
         
-    def on_heartbeat(self):
-        new_status = "ACTIVE"
-        if self.conn_status != new_status:
-            invoke_in_main_thread(self.update_status)
-        self.set_status("ACTIVE")
-        
     def update_status(self):
         self.osc_thread.get_mainthread("midichannel", lambda chan:self.set_midichannel)
         self.get_midiports()
 
     def poll_action(self):
-        for pin in self.anpins:
-            if pin._dirty:
-                pin.repaint()
-        for pin in self.digpins:
-            if pin._dirty:
-                pin.repaint()
+        if self._dirty:
+            for pin in self.anpins:
+                if pin._dirty:
+                    pin.repaint()
+            for pin in self.digpins:
+                if pin._dirty:
+                    pin.repaint()
+            self._dirty = False
 
     def set_status(self, status):
         self.conn_status = status
@@ -350,8 +340,7 @@ class Pedlbrd(QWidget):
         debug_button.clicked.connect(self.action_debug)
         daemon_button = QPushButton('Hide', self)
         daemon_button.clicked.connect(self.action_daemon)
-
-        
+ 
         self.quit_button = QPushButton('Quit', self)
         self.quit_button.clicked.connect(self.action_quit)
 
@@ -472,10 +461,7 @@ class Pedlbrd(QWidget):
 
     def launch_debugging_console(self):
         pedltalk_proc = self._subprocs.get('pedltalk')
-        # this changed
-        
         if pedltalk_proc is None or pedltalk_proc.poll() is not None:  # either first call, or subprocess finished
-
             if sys.platform == 'darwin':
                 pedltalkpath = os.path.realpath("pedltalk.py")
                 if not os.path.exists(pedltalkpath):
@@ -495,8 +481,7 @@ class Pedlbrd(QWidget):
                     return
                 p = subprocess.Popen(args=["xterm", "-e", "python", pedltalkpath])
                 self._subprocs['pedltalk'] = p
-                    
-                
+                               
     def get_midiports(self, callback=None):
         """
         :param callback: function, if given, it will be called with the ports as argument
@@ -530,7 +515,7 @@ class Pedlbrd(QWidget):
         QTimer.singleShot(ms, action)
 
     def action_midichannel(self, index):
-        self.osc_thread.sendosc('/midichannel/set', '*', index)
+        self.osc_thread.sendosc('/midichannel/set', index)
 
     def set_midichannel(self, ch):
         self.midichannel_combo.setCurrentIndex(ch)
@@ -552,7 +537,7 @@ def start(pedlbrd_address=("localhost", 47120)):
     global qt_app
     qt_app = QApplication(sys.argv)
     app = Pedlbrd( pedlbrd_address )
-    app.run()
+    app.run()  # <-------------- this will block
     app.osc_thread.stop()
     time.sleep(0.2)
 

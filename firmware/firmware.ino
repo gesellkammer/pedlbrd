@@ -703,7 +703,8 @@ void loop() {
 			}
 			#ifdef NORMAL
 				Serial.write(128 + CMD_DIGITAL);
-				Serial.write(pin);
+				//Serial.write(pin);
+				Serial.write(i);
 				Serial.write(value);
 			#else
 				Serial.print("D");
@@ -818,7 +819,8 @@ void loop() {
 
 		#ifdef NORMAL
 			Serial.write(128 + CMD_ANALOG);
-			Serial.write(pin);
+			//Serial.write(pin);
+			Serial.write(i);
 			Serial.write(value >> 7);
 			Serial.write(value & 0b1111111);
 		#else

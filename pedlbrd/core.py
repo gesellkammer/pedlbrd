@@ -143,30 +143,17 @@ class Configuration(dict):
             config.update(overrides)
         self.callback = callback
         self.update(config)
-        self._label2pin, self._pin2label = self._get_input_pin_mapping()
+        # self._label2pin, self._pin2label = self._get_input_pin_mapping()
         self._callback_enabled = True
         self.state = {'saved':False, 'changed':True}
 
     def label2pin(self, label):
-        return self._label2pin.get(label)
+        return label[0], int(label[1:])
+        # return self._label2pin.get(label)
 
     def pin2label(self, kind, pin):
-        return self._pin2label.get((kind, pin))
-
-    def _get_input_pin_mapping(self):
-        label2pin = {label:_aspin(inputdef['pin']) for label, inputdef in self['input_definition'].iteritems()}
-        pin2label = {pin:label for label, pin in label2pin.iteritems()}
-        return label2pin, pin2label
-
-    def _get_pins(self):
-        pins = []
-        for label, definition in self['input_definition'].iteritems():
-            pins.append(definition['pin'])
-        self._pins = pins
-        return pins
-
-    def _get_labels(self):
-        return self['input_definition'].keys()
+        # return self._pin2label.get((kind, pin))
+        return "%s%d" % (kind, pin)
 
     def getpath(self, path):
         if isinstance(path, basestring):
@@ -219,66 +206,6 @@ class Configuration(dict):
     def midi_mapping_for_label(self, label):
         return self['input_mapping'].get(label).get('midi')
 
-
-# --------------------------------------------------------------
-
-class MIDI_Mapping(object):
-    def __init__(self, configuration):
-        """
-        configuration: a Configuration
-        """
-        assert isinstance(configuration, Configuration)
-        self.config = configuration
-        self._analog_lastvalues = [0 for i in range(self.config['num_analog_pins'])]
-
-    def construct_func(self, label):
-        if label[0] == 'D':
-            return self.construct_digital_func(label)
-        return self.construct_analog_func(label)
-
-    def construct_digital_func(self, label):
-        mapping = self.config.midi_mapping_for_label(label)
-        kind, pin = self.config.label2pin(label)
-        if not mapping:
-            return None
-        byte1 = 176 + mapping['channel']  # 176=CC
-        cc = mapping['cc']
-        _, out1 = mapping['output']
-        func = lambda x: (byte1, cc, x*out1)
-        if DEBUG:
-            def debugfunc(x):
-                msg = func(x)
-                print "D%d: %d -> %s" % (pin, x, str(msg))
-                return msg
-            return debugfunc
-        return func
-
-    def construct_analog_func(self, label):
-        mapping = self.config.midi_mapping_for_label(label)
-        kind, pin = self.config.label2pin(label)
-        lastvalues = self._analog_lastvalues
-        if not mapping:
-            return None
-        byte1 = 176 + mapping['channel']  # 176=CC
-        cc = mapping['cc']
-        def func(x):
-            # a func should return either a msg or None. x is 0. - 1.
-            value = int(x * 127+0.5)
-            if value > 127:
-                value = 127
-            lastvalue = lastvalues[pin]
-            if value == lastvalue:
-                return None
-            lastvalues[pin] = value
-            return (byte1, cc, value)
-        if DEBUG:
-            def debugfunc(x):
-                msg = func(x)
-                print "A", pin, x, msg
-                return msg
-            return debugfunc
-        return func
-
 # -----------------------------------------------------------------------------------------------------
 
 def _envpath(name):
@@ -323,7 +250,6 @@ class Pedlbrd(object):
             restore_session = self.env['restore_session']
         self.config, self.configfile = self._load_config(config, kws, restore_session=restore_session)
         self._serialport = None
-        self._labels = self.config['input_definition'].keys()
         self._running = False
         self._status  = ''
         self._num_analog_pins = 6
@@ -336,11 +262,11 @@ class Pedlbrd(object):
         self._dispatch_funcs_by_pin = {}
         self._analog_funcs  = [None for i in range(self._num_analog_pins)]
         self._digital_funcs = [None for i in range(self._num_digital_pins)]
+        self._digital_inverted = [False for i in range(self._num_digital_pins)]
         self._handlers = {}
         self._serialconnection = None
         self._oscserver = None
         self._oscapi = None
-        self._midichannel = -1
         self._midithrough_ports = set()
         self._midithrough_index = 0 # <--------- this reflects the last selected midithrough port
         self._ip = None
@@ -353,6 +279,7 @@ class Pedlbrd(object):
         self._osc_reply_addresses = set()
         self._device_info = {}
         self._midiout_openports = []
+        self._midi_analog_lastvalues = [0 for i in range(self.config['num_analog_pins'])]
 
         self.logger = Log()
         self._scheduler = timer2.Timer(precision=0.5)
@@ -423,16 +350,10 @@ class Pedlbrd(object):
         return None
 
     def reset_state(self):
-        # TODO: load state from json file
-
-        #def seq_set(seq, value):
-        #    for i in range(len(seq)):
-        #        seq[i] = value
         self.logger.debug("reset_state --> resetting")
         self._analog_minvalues = [resolution for resolution in self._analog_resolution_per_pin]
         self._analog_maxvalues = [1] * self._num_analog_pins
         self._analog_autorange = [1] * self._num_analog_pins
-        self._midi_mapping = MIDI_Mapping(self.config)
         self._input_labels = self.config['input_mapping'].keys()
         self._send_osc_ui('/notify/reset')
         self._led_pattern(15, 50, 45)
@@ -441,6 +362,32 @@ class Pedlbrd(object):
             self._msgqueue.put_nowait("RESET")
         else:
             self.logger.debug("finished reset, mainloop is not running")
+
+    def _midi_construct_func(self, kind, pin):
+        def digital(pin):
+            channel = self.config.get('midichannel', 0)
+            cc = pin + 1
+            byte1 = 176 + channel
+            func = lambda x: (byte1, cc, x*127)
+            return func
+        def analog(pin):
+            lastvalues = self._midi_analog_lastvalues
+            channel = self.config.get('midichannel', 0)
+            byte1 = 176 + channel
+            cc = 101 + pin
+            def func(x):
+                value = int(x * 127+0.5)
+                if value > 127:
+                    value = 127
+                lastvalue = lastvalues[pin]
+                if value == lastvalue:
+                    return None
+                lastvalues[pin] = value
+                return (byte1, cc, value)
+            return func
+        if kind == 'D':
+            return digital(pin)
+        return analog(pin)
 
     def find_device(self, retry_period=0):
         """
@@ -642,51 +589,12 @@ class Pedlbrd(object):
         else:
             return lines
 
-    def _digitalmap(self):
-        dl = list(self.config['input_mapping'].iteritems())
-        dl = util.sort_natural(dl, key=lambda row:row[0])
-        return [(label, mapping['inverted']) for label, mapping in dl if label[0] == "D"]
-
     def _digitalmapstr(self, chars="0X"):
-        m = self._digitalmap()
-        out = []
-        for label, inverted in m:
-            out.append(chars[inverted])
+        out = [chars[inverted] for inverted in self._digital_inverted]
         return ''.join(out)
 
     def _lines_report_config(self):
-        d = self.config['input_mapping']
-        dl = list(d.iteritems())
-        dl = util.sort_natural(dl, key=lambda row:row[0])
-        lines = ["\nLABEL    MAPPING", "------------------------------------------------------------"]
-        col2 = 8
-        for label, mapping in dl:
-            midi = mapping['midi']
-            if label[0] == "D":
-                inverted  = "INVERTED" if mapping['inverted'] else ""
-                out0, out1 = midi['output']
-                l = "%s    | %s  CH %2d  CC %3d                  (%3d - %3d)" % (label.ljust(3), inverted.ljust(col2),
-                                                                                 midi['channel'], midi['cc'], out0, out1)
-            else:
-                pin_normalized = True
-                kind, pin = self.label2pin(label)
-                # pin_normalized = mapping['normalized']
-                normalize = "NORM" if pin_normalized else ""
-                if pin_normalized:
-                    normalize = "NORM"
-
-                    maxvalue = ("MAX %d" % self._analog_maxvalues[pin]).ljust(8)
-                    minvalue = ("MIN %d" % self._analog_minvalues[pin]).ljust(8)
-                else:
-                    normalize = ""
-                    maxvalue = ""
-                in0, in1 = 0, self._analog_resolution_per_pin[pin]
-                out0, out1 = 0, 127
-                l = "%s    | %s  CH %2d  CC %3d  (%3d - %4d) -> (%3d - %3d)  %s %s" % (label.ljust(3), normalize.ljust(col2),
-                                                                                       midi['channel'], midi['cc'], in0, in1, out0, out1, maxvalue, minvalue)
-            lines.append(l)
-        lines.append("")
-        return lines
+        return []
 
     def _load_config(self, config=None, overrides=None, restore_session=False):
         if config is None:
@@ -754,78 +662,74 @@ class Pedlbrd(object):
                 raise DeviceNotFound('PEDLBRD device not found. Aborting')
         self._serialport = serialport
 
-    def _create_dispatch_func(self, label):
+    def _create_dispatch_func(self, kind, pin):
         """
         returns a list of functions operating on the pin corresponding to
         the given label
         """
-        input_mapping = self.config['input_mapping'].get(label)
-        if not input_mapping:
-            self.logger.error("Trying to create a dispatch function for an undefined input (label=%s)" % label)
-            return None
-        midifunc = self._midi_mapping.construct_func(label)
+        # midifunc = self._midi_construct_func(kind, pin)
         midiout = self._midiout
+        assert midiout is not None
         sendmidi = midiout.send_message
         # ----------------------
         # Digital
         # ----------------------
-        labelpin = int(label[1:])
-        if label[0] == "D":
-            inverted = input_mapping['inverted']
-            try:
-                midichan = input_mapping['midi']['channel']
-            except KeyError:
-                raise KeyError("midichannel not present!: "+str(input_mapping))
-            try:
-                cc = input_mapping['midi']['cc']
-            except KeyError:
-                raise KeyError("cc definition not present")
-            _, out1 = input_mapping['midi']['output']
+        if kind == "D":
+            inverted = self._digital_inverted[pin]
+            cc = pin + 1
+            midichan = self.config['midichannel']
             byte1 = 176 + midichan
-            kind, pin = self.label2pin(label)
             def callback(value):
                 if inverted:
                     value = 1 - value
-                sendmidi((byte1, cc, value*out1))
-                self._send_osc_data('/data/D', labelpin, value)
+                sendmidi((byte1, cc, value*127))
+                self._send_osc_data('/data/D', pin, value)
                 return value
             return callback
 
         # --------------
         # Analog
         # --------------
-        if label[0] == "A":
-            kind, pin = self.label2pin(label)
-            #normalize = self._normalize
+        if kind == "A":
             normalize = self._gen_normalize(pin)
             oscsend = self._oscserver.send
             addresses = self._osc_data_addresses
-            #def callback(value, pin=pin, normalize=self._normalize, oscsend=self._oscserver.send, addresses=self._osc_data_addresses):
+            midi_lastvalues = self._midi_analog_lastvalues
+            midi_channel = self.config.get('midichannel', 0)
+            byte1 = 176 + midi_channel
+            cc = 101 + pin
             def callback(value):
-                #normvalue = normalize(pin, value)
                 normvalue = normalize(value)
                 # normalize returns -1 if the pin is not active
                 if normvalue < 0:
                     return
-                msg = midifunc(normvalue)
-                if msg:
-                    sendmidi(msg)
+                midivalue = int(normvalue*127+0.5)
+                if midivalue > 127:
+                    midivalue = 127
+                if midivalue != midi_lastvalues[pin]:
+                    midi_lastvalues[pin] = midivalue
+                    sendmidi((byte1, cc, midivalue))
+
+
+                #msg = midifunc(normvalue)
+                #if msg:
+                #    sendmidi(msg)
                 # we send the normalized data as 32bit float, which is more than enough for the
                 # ADC resolution of any sensor, and ensures compatibility with
                 # osc implementations such as PD, which only interprets floats as 32 bits
                 for address in addresses:
-                    # oscsend(address, '/data/A', labelpin, ('f', value))
-                    oscsend(address, '/data/A', labelpin, ('f', normvalue), ('i', value))
+                    oscsend(address, '/data/A', pin, ('f', normvalue), ('i', value))
                 return value
             return callback
 
     def _update_dispatch_funcs(self):
-        for label in self._input_labels:
-            self._input_changed(label)
+        for analog_pin in range(4):
+            self._input_changed("A", analog_pin)
+        for digital_pin in range(10):
+            self._input_changed("D", digital_pin)
 
-    def _input_changed(self, label):
-        kind, pin = self.label2pin(label)
-        self._dispatch_funcs_by_pin[(kind, pin)] = f = self._create_dispatch_func(label)
+    def _input_changed(self, kind, pin):
+        f = self._create_dispatch_func(kind, pin)
         if kind == 'A':
             self._analog_funcs[pin] = f
         else:
@@ -836,11 +740,10 @@ class Pedlbrd(object):
             handler.cancel()
         self._handlers = {}
         self._handlers['save_env'] = self._call_regularly(23, self._save_env)
-        time.sleep(0.5)
+        time.sleep(0.25)
         autosave_config_period = self.config.setdefault('autosave_config_period', 31)
         if autosave_config_period:
             self._handlers['save_config'] = self._call_regularly(autosave_config_period, self._save_config, kws={'autosave':False})
-        #self._handlers['midioutports_changed'] = self._call_regularly(3, self._midioutports_check_changed)
 
     # ***********************************************
     #
@@ -860,7 +763,6 @@ class Pedlbrd(object):
 
         self._msgqueue = Queue()
         self._midi_turnon()
-
         self._update_handlers()
 
         config       = self.config
@@ -870,27 +772,24 @@ class Pedlbrd(object):
         osc_recv_inside_loop = not self._oscasync
         self.logger.debug("osc will be processed %s" % ("sync" if osc_recv_inside_loop else "async"))
 
-        dlabels = [self.pin2label("D", i) for i in range(self.config['num_digital_pins'])]
-        alabels = [self.pin2label("A", i) for i in range(self.config['num_analog_pins'])]
-
         self._running = True
         self._set_status('STARTING')
 
         bgtask_checkinterval  = self.config['sync_bg_checkinterval']  # if the mainloop is active without time out for this interval, it will be interrupted
         idle_threshold        = self.config['idle_threshold'] # do background tasks after this time of idle (no data comming from the device)
         button_short_click    = self.config['reset_click_duration']
-        osc_forward_heartbeat = self.config['osc_forward_heartbeat']
-
+        
         if osc_recv_inside_loop:
             oscrecv = self._oscserver.recv
 
-        self.logger.info("\n>>> started listening!")
         def serial_read(serial, numbytes):
             msg = serial.read(numbytes)
             if len(msg) != numbytes:
                 raise IOError
             return msg
         self._update_dispatch_funcs()
+
+        self.logger.info("\n>>> started listening!")
         while self._running:
             try:
                 ok = self._connect()
@@ -908,11 +807,12 @@ class Pedlbrd(object):
                 send_heartbeat_period = 0.33
                 connected = True
                 needs_reset = False
-                sendraw = self._sendraw
+
                 # CACHE
                 self._update_dispatch_funcs()
                 analog_funcs  = self._analog_funcs
                 digital_funcs = self._digital_funcs
+
                 while self._running:
                     b = s_read(1)
                     now = time_time()
@@ -921,7 +821,6 @@ class Pedlbrd(object):
                         if osc_recv_inside_loop:
                             oscrecv(0)
                         if (now - last_idle) > idle_threshold:
-                            sendraw = self._sendraw
                             self._midioutports_check_changed()
                             last_idle = now
                         if not self._msgqueue.empty():
@@ -930,6 +829,10 @@ class Pedlbrd(object):
                                 self.logger.debug("******** got RESET message")
                                 needs_reset = True
                                 break
+                            elif msg == "UPDATE":
+                                self._update_dispatch_funcs()
+                                analog_funcs  = self._analog_funcs
+                                digital_funcs = self._digital_funcs
                             else:
                                 self.logger.error("got unknown message in the msgqueue: %s" % str(msg))
                         continue
@@ -952,11 +855,8 @@ class Pedlbrd(object):
                             continue
                         param = _ord(msg[0])
                         value = _ord(msg[1])*128 + _ord(msg[2])
-                        #if sendraw:
-                        #    send_osc_data('/raw', alabels[param], value)
                         func = analog_funcs[param]
-                        if func:
-                            func(value)
+                        func(value)
                     # -------------
                     #    DIGITAL
                     # -------------
@@ -968,15 +868,12 @@ class Pedlbrd(object):
                         param = _ord(msg[0])
                         value = _ord(msg[1])
                         if digitalinput_needs_calibration[param]:
-                            label = self.pin2label('D', param)
-                            config.set("input_mapping/%s/inverted" % label, bool(value))
+                            self._digital_inverted[param] = bool(value)
                             digitalinput_needs_calibration[param] = False
                         else:
-                            #if sendraw:
-                            #    send_osc_data('/raw', dlabels[param], value)
                             func = digital_funcs[param]
-                            if func:
-                                func(value)
+                            func(value)
+
                     # -------------
                     #   HEARTBEAT
                     # -------------
@@ -1070,7 +967,6 @@ class Pedlbrd(object):
                                     continue
                                 msg.append(ch)
                             msg = ''.join(msg)
-                            print ">>>> ", msg
                             print map(_ord, msg)
                             self.logger.info('>>>>>> ' + msg)
                         except IOError:
@@ -1119,7 +1015,6 @@ class Pedlbrd(object):
         intbytes.append(128)
         bytes2 = map(chr, intbytes)
         s = ''.join(bytes2)
-        # self.logger.debug("send_to_device. received %d bytes (%s), sending %d bytes (%s)sending raw bytes -> %s" % (len(bytes), bytes, len(bytes2), bytes2, str(map(ord, bytes2))))
         try:
             self._serialconnection.write(s)
         except serial.SerialException:
@@ -1329,7 +1224,9 @@ class Pedlbrd(object):
         paths0 = paths[0]
         if paths0 == 'input_mapping':
             label = paths[1]
-            self._input_changed(label)
+            kind = label[0]
+            pin = int(label[1:])
+            self._input_changed(kind, pin)
         elif paths0 == 'osc_send_raw_data':
             self._sendraw = value
             self.logger.debug('send raw data: %s' % (str(value)))
@@ -1373,7 +1270,9 @@ class Pedlbrd(object):
         """{si} invert a digital input. """
         labels = self._match_labels(label)
         for label in labels:
-            path = "input_mapping/%s/inverted" % label
+            pin = int(label[1:])
+            #path = "input_mapping/%s/inverted" % label
+            path = "D%d/inverted" % pin
             value = bool(value)
             self.config.set(path, value)
 
@@ -1384,46 +1283,13 @@ class Pedlbrd(object):
             return
         return ForwardReply(('G', 'S', analoginput-1))
 
-    def cmd_midichannel_set(self, label, channel):
-        """{si} Set the midichannel. label can be a wildcard
-                --use "*" to set the channel for all inputs, "A?" to change all analog inputs
-        """
-        self.logger.debug("midichannel/set label:%s channel: %d" % (label, channel))
-        labels = self._match_labels(label)
-        if not 0 <= channel < 16:
-            self.logger.error("channel should be between 0-15, got %d" % channel)
-            return
-        for l in labels:
-            path = 'input_mapping/%s/midi/channel' % l
-            try:
-                self.config.set(path, channel)
-                self._send_osc_ui("/changed/midichannel", l, channel)
-            except KeyError:
-                self.logger.error("could not set midichannel for label: "+l)
-        if label == "*":
-            self._send_osc_ui("/changed/midichannel", label, channel)
-
-    def cmd_midicc_set(self, label, cc):
-        """{si}set the CC of input"""
-        path = 'input_mapping/%s/midi/cc' % label
-        if not 0 <= cc < 128:
-            self.logger.error(
-                "midi CC should be between 0 and 127, got %d" % cc
-            )
-            return
-        if not label in self._labels:
-            self.logger.error("/midicc/set: label must be one of %s" % str(self._labels))
-            return
-        self.config.set(path, cc)
-
-    def cmd_midicc_get(self, src, reply_id, label):
-        """{s} Get the CC mapping for label"""
-        self.logger.debug("/midicc/get %s" % label)
-        cc = self.config.getpath('input_mapping/%s/midi/cc' % label)
-        if cc is None:
-            self.logger.error('could not get midicc for label: %s' % label)
-            return
-        return cc
+    def cmd_midichannel_set(self, channel):
+        """{i} Set the midichannel (0-15)"""
+        if 0 <= channel <= 15:
+            self._update_dispatch_funcs()
+            self.config.set("midichannel", channel)
+            self._send_osc_ui("/changed/midichannel", channel)
+            self._msgqueue.put_nowait("UPDATE")
 
     def cmd_midithrough_set(self, wildcard_or_index, value):
         """If int, the index of the midiport
@@ -1659,13 +1525,6 @@ class Pedlbrd(object):
         except IndexError:
             self.logger.error("Analog input outside range")
 
-    def cmd__echo(self, path, args, types, src):
-        """responds to the path '/echo' of the caller with the same arguments"""
-        if args:
-            self._oscserver.send(src, '/echo', *args)
-        else:
-            self._oscserver.send(src, '/echo')
-
     def cmd__report(self, path, args, types, src):
         addr = _oscmeta_get_addr(args, src)
         lines = self.report(log=False)
@@ -1710,23 +1569,9 @@ class Pedlbrd(object):
         """{i}Returns the digital calibration as str"""
         return self._digitalmapstr()
 
-    def cmd_midichannel_get(self, src, reply_id, label=None):
-        """{s} midichannel used to send data for the given input"""
-        self.logger.debug("/midichannel/get %s" % label)
-        if label is not None:
-            ch = self.config.getpath('input_mapping/%s/midi/channel' % label)
-        else:
-            chs = [self.config.getpath('input_mapping/%s/midi/channel' % label) for label in self._labels]
-            if len(set(chs)) == 1:
-                ch = chs[0]
-            else:
-                ch = -1
-            self.logger.debug("midichannels: %s, return: %d" % (":".join(map(str, chs)), ch))
-
-        if ch is None:
-            self.logger.error('could not get midichannel for label: %s' % label)
-            return
-        return ch
+    def cmd_midichannel_get(self, src, reply_id):
+        """{s} midichannel used to send data"""
+        return self.config.getpath('midichannel')
 
     def cmd_addrui_get(self, src, reply_id):
         """OSC addresses for UI information ==> uiaddresses : a space separated string of 'hostname:port'"""
@@ -1956,17 +1801,7 @@ class Pedlbrd(object):
             lines2.append(l)
         lines2.sort()
         lines.extend(lines2)
-        lines.append("\nlabel: identifies the input. Valid labels are: D1-D10, A1-A4")
-        lines.append("Example: oscsend %s %d /midicc D2 41" % (ip, oscport))
-        lines.append("         oscsend %s %s /midichannel * 2" % (ip, oscport))
         return lines
-
-    def _match_labels(self, pattr):
-        out = []
-        for label in self._labels:
-            if fnmatch.fnmatch(label, pattr):
-                out.append(label)
-        return out
 
     def _newoschandler_GET(self, method, methodname=None):
         """

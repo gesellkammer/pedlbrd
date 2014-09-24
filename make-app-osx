@@ -37,7 +37,6 @@ MIDIMONITOR=0
 COPYAPP=1
 CLEANUP=1
 REMOVE_UNUSED_FILES=0
-PD=1
 
 while test "${1:0:1}" = "-"; do
 	case $1 in
@@ -90,7 +89,6 @@ showoption $CREATEPACKAGE "create dmg"
 showoption $SIMPLEDMG     "pack the app in a dmg file, no fancy packaging"
 showoption $CLEANUP       "clean garbage"
 showoption $REMOVE_UNUSED_FILES "remove unused files"
-showoption $PD "include PD control panel"
 echo "---------------------------"
 echo
 
@@ -112,12 +110,6 @@ if [ $BUILDAPP == 1 ]; then
 	for f in pedlbrd pedltalk.py assets oscmonitor.py firmware; do
 		cp -r $f $BUILDFOLDER/
 	done
-
-	if [ $PD == 1 ]; then
-		mkdir -p $BUILDFOLDER/extra
-		mkdir -p $BUILDFOLDER/extra/pd
-		cp extra/pd/*.pd $BUILDFOLDER/extra/pd
-	fi
 
 	cp -f $ENTRY.py $BUILDFOLDER
 

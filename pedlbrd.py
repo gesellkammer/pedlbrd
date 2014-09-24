@@ -122,16 +122,20 @@ if __name__ == '__main__':
 
     if util.argv_getflag(sys.argv, '--nogui'):
         GUI = False
+    
     OSCMON = util.argv_getflag(sys.argv, '--oscmon')
-
-    port = util.argv_getoption(sys.argv, '--port', PORT_UNSET, astype=int)
-
     if OSCMON:
         oscmon()
-    elif GUI and not DETACHED:
-        logger.debug("starting core and gui in single process")
-        with_gui(port)
-    elif GUI and DETACHED:
-        detached_gui_reverse(port)
-    else:
+        sys.exit(0)
+    
+    port = util.argv_getoption(sys.argv, '--port', PORT_UNSET, astype=int)
+
+    if not GUI:
         no_gui(port)
+    else:
+        if DETACHED:
+            detached_gui_reverse(port)
+        else:
+            logger.debug("starting core and gui in single process")
+            with_gui(port)
+    sys.exit(0)

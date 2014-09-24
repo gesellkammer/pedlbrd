@@ -26,6 +26,7 @@
 
 	// MIDI
 	"midi_device_name" : "PEDLBRD",
+	"midichannel" : 0,
 	
 	// PIN DEFINITIONS (Do not change if you dont know what you are doing)
 	// Normally the first two digital pins are used for serial communication

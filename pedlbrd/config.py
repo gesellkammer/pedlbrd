@@ -31,7 +31,6 @@ DEFAULT_CONFIG = {
 	'autostart': True,
 	'autosave_config_period': 40,
 	'serialloop_async': True,
-	'osc_forward_heartbeat': False,
 	'sync_bg_checkinterval': 0.2,
 	'idle_threshold' : 3,
 	'serialtimeout_async': 0.1,
@@ -43,25 +42,8 @@ DEFAULT_CONFIG = {
 
 	# MIDI
 	'midi_device_name' : 'PEDLBRD',
+	'midichannel' : 0,
 	
-	# PIN DEFINITIONS 
-	'input_definition': {
-		'D1' : {'pin':'D2'},
-		'D2' : {'pin':'D3'},
-		'D3' : {'pin':'D4'},
-		'D4' : {'pin':'D5'},
-		'D5' : {'pin':'D6'},
-		'D6' : {'pin':'D7'},
-		'D7' : {'pin':'D8'},
-		'D8' : {'pin':'D9'},
-		'D9' : {'pin':'D10'},
-		'D10': {'pin':'D11'},
-		'A1' : {'pin':'A0'},
-		'A2' : {'pin':'A1'},
-		'A3' : {'pin':'A2'},
-		'A4' : {'pin':'A3'},
-	},
-
 	# ----------------------------------------------------- 
 	# inputs are the UI side of pins, identified by a label
 	# -----------------------------------------------------
