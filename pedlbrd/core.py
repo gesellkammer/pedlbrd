@@ -1107,13 +1107,17 @@ class Pedlbrd(object):
             return
         return ForwardReply(('G', 'S', analoginput-1))
 
+
+    def _update_mainloop(self):
+        self._msgqueue.put_nowait("UPDATE")
+
     def cmd_midichannel_set(self, channel):
         """{i} Set the midichannel (0-15)"""
         if 0 <= channel <= 15:
             self._update_dispatch_funcs()
             self.config.set("midichannel", channel)
             self._send_osc_ui("/changed/midichannel", channel)
-            self._msgqueue.put_nowait("UPDATE")
+            self._update_mainloop()
 
     def cmd_midithrough_set(self, wildcard_or_index, value):
         """If int, the index of the midiport

@@ -50,6 +50,13 @@ An Arduino based sensor interface.
 
 1. Create a virtualenv in python
 2. Install all your dependencies
+3. Check that PySide installed correctly
+
+    $ python
+    >>> from PySide import QtCore
+    
+If this is failing and you installed PySide from pip, the post-install script needs to be run.
+   
 3. Test first: go to the root folder and launch pedlbrd.py
 4. Create the app by launching
 

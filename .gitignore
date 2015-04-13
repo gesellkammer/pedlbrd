@@ -1,0 +1,7 @@
+appbuild/
+guisketch/
+*.app
+old/
+*.pyc
+.idea
+.old
