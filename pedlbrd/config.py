@@ -27,7 +27,7 @@ DEFAULT_CONFIG = {
 	# CONNECTION
 	'firsttime_retry_period': 0.3,     # if possitive, dont give up if no device present at creation time, try to reconnect
 	'firsttime_accept_fail': True,     # dont fail if there is no connection. Build everything and drops to noconnection state
-	'reconnect_period_seconds': 0.25,  # 0 if no reconnection should be attempted 
+	'reconnect_period_seconds': 1,  # 0 if no reconnection should be attempted 
 	'autostart': True,
 	'autosave_config_period': 40,
 	'serialloop_async': True,

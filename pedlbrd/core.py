@@ -50,11 +50,12 @@ VALUE = VALUE_HIGH * 128 + VALUE_LOW
 # The oscport could be configurable if we implemented some sort of
 # zeroconf support, which is overkill for this project
 #################################
-BAUDRATE   = 115200
-OSCPORT    = 47120
+BAUDRATE = 115200
+OSCPORT = 47120
 PEDLBRD_ID = 5
 
 DEBUG = False
+
 
 def _parse_errorcodes(s):
     out = {}
@@ -83,15 +84,21 @@ REG = {}
 #################################
 # Errors
 #################################
-class DeviceNotFound(BaseException): pass
 
-class OSCPortUsed(BaseException): pass
+
+class DeviceNotFound(BaseException):
+    pass
+
+
+class OSCPortUsed(BaseException): 
+    pass
 
 ################################
 #
 #             API
 #
 ################################
+
 
 def detect_port():
     possible_ports = envir.possible_ports()
@@ -106,6 +113,7 @@ def detect_port():
         else:
             _debug("found port %s, but no heartbeat detected" % port)
     return None
+
 
 def write_default_config(name=None):
     """
@@ -122,7 +130,6 @@ def write_default_config(name=None):
     _jsondump(DEFAULT_CONFIG, path)
     return path
 
-# -----------------------------------------------------------------------
 
 class Configuration(dict):
     """
@@ -143,8 +150,8 @@ class Configuration(dict):
         self.callback = callback
         self.update(config)
         self._callback_enabled = True
-        self.state = {'saved':False, 'changed':True}
-    
+        self.state = {'saved': False, 'changed': True}
+
     def getpath(self, path):
         if isinstance(path, basestring):
             if "/" in path:
@@ -172,16 +179,14 @@ class Configuration(dict):
         elif isinstance(path, (tuple, list)):
             keys = path
         else:
-            raise ValueError(
-              "the path must be a string of the type key1/key2/... or a seq [key1, key2, ...]"
-            )
+            raise ValueError("the path must be a string of the type key1/key2/..."
+                             " or a seq [key1, key2, ...]")
         d = self
         if len(keys) == 0:
             self[path] = value
             self.state['changed'] = True
             if self._callback_enabled:
                 self.callback(path, value)
-                
         else:
             for key in keys[:-1]:
                 v = d.get(key)
@@ -193,12 +198,12 @@ class Configuration(dict):
             self.state['changed'] = True
             if self._callback_enabled:
                 self.callback(path, value)
-                
 
     def midi_mapping_for_label(self, label):
         return self['input_mapping'].get(label).get('midi')
 
 # -----------------------------------------------------------------------------------------------------
+
 
 class Pedlbrd(object):
     def __init__(self, oscport=None, oscasync=None):
@@ -210,7 +215,7 @@ class Pedlbrd(object):
 
         self._serialport = None
         self._running = False
-        self._status  = ''
+        self._status = ''
         self._num_analog_pins = 6
         self._num_digital_pins = 12
         self._analog_resolution_per_pin = [DEFAULTS['max_analog_value'] for i in range(self._num_analog_pins)]
@@ -227,7 +232,7 @@ class Pedlbrd(object):
         self._oscserver = None
         self._oscapi = None
         self._midithrough_ports = set()
-        self._midithrough_index = 0 # <--------- this reflects the last selected midithrough port
+        self._midithrough_index = 0  # <----- this reflects the last selected midithrough port
         self._ip = None
         self._callbackreg = {}
         self._first_conn = True
@@ -246,12 +251,17 @@ class Pedlbrd(object):
         self._cache_update()
         self._oscserver, self._oscapi = self._create_oscserver()
         if self._oscserver is None:
-            raise OSCPortUsed("Could not create OSC server. Check if a previous crash has not left a zombie")
+            raise OSCPortUsed("Could not create OSC server."
+                              "Check if a previous crash has not left a zombie")
         if self._oscasync:
+            self.logger.debug("starting oscserver async")
             self._oscserver.start()
+        else:
+            self.logger.debug("osc is in sync mode")
 
         # Here we actually try to connect to the device.
-        # If firsttime_retry_period is possitive, it will block and wait for device to show up
+        # If firsttime_retry_period is possitive, it will 
+        # block and wait for device to show up
         self._prepare_connection()
         self.report()
         if self.config.get('open_log_at_startup', False):
@@ -277,7 +287,8 @@ class Pedlbrd(object):
         * Reset the polarity of the digital pins
         """
         self.logger.debug("reset_state --> resetting")
-        self._analog_minvalues = [resolution for resolution in self._analog_resolution_per_pin]
+        self._analog_minvalues = [
+            resolution for resolution in self._analog_resolution_per_pin]
         self._analog_maxvalues = [1] * self._num_analog_pins
         self._analog_autorange = [1] * self._num_analog_pins
         self._input_labels = self.config['input_mapping'].keys()
@@ -303,7 +314,8 @@ class Pedlbrd(object):
                 if not retry_period:
                     return None
                 else:
-                    self.logger.error('Device not found, retrying in %0.1f seconds' % retry_period)
+                    self.logger.error(
+                        'Device not found, retrying in %0.1f seconds' % retry_period)
                     time.sleep(retry_period)
             else:
                 self._set_status('DEVICE FOUND')
@@ -364,8 +376,6 @@ class Pedlbrd(object):
         for handlername, handler in self._handlers.iteritems():
             self.logger.debug('cancelling handler: %s' % handlername)
             handler.cancel()
-        time.sleep(0.2)
-        
 
     def calibrate_digital(self):
         """
@@ -382,12 +392,12 @@ class Pedlbrd(object):
                 self._digitalinput_needs_calibration[i] = True
             self.send_to_device(('F'))
         else:
-            self.logger.error("attempted to calibrate digital inputs outside of main loop")
+            self.logger.error(
+                "attempted to calibrate digital inputs outside of main loop")
             return
         self._send_osc_ui('/notify/calibrate')
         time.sleep(0.2)
         self._led_pattern(3, 110, 100)
-
 
     ####################################################
     #
@@ -402,7 +412,8 @@ class Pedlbrd(object):
         """
         if isinstance(key, basestring):
             if not len(key) == 1:
-                self.logger.error("the reply_id should be a number of character between 0-127")
+                self.logger.error(
+                    "the reply_id should be a number of character between 0-127")
                 return
             key = ord(key[0])
         self._callbackreg[key] = func
@@ -419,8 +430,10 @@ class Pedlbrd(object):
                 return liblo.Address(*addr)
             else:
                 return liblo.Address(addr)
-        self._osc_ui_addresses[:]   = [as_liblo_address(addr) for addr in self.config['osc_ui_addresses']]
-        self._osc_data_addresses[:] = [as_liblo_address(addr) for addr in self.config['osc_data_addresses']]
+        self._osc_ui_addresses[:] = \
+            [as_liblo_address(addr) for addr in self.config['osc_ui_addresses']]
+        self._osc_data_addresses[:] = \
+            [as_liblo_address(addr) for addr in self.config['osc_data_addresses']]
 
     def _cache_update(self):
         if self._running:
@@ -449,14 +462,18 @@ class Pedlbrd(object):
             "OSC IN     : %s, %d" % (self.ip, OSCPORT)
         ]
         osc_data = self.config['osc_data_addresses']
-        osc_ui   = self.config['osc_ui_addresses']
-        addr_to_str = lambda addr: ("%s:%d" % tuple(addr)).ljust(16)
+        osc_ui = self.config['osc_ui_addresses']
+
+        def addr_to_str(addr):
+            return ("%s:%d" % tuple(addr)).ljust(16)
         if osc_data:
             oscdata_addresses = map(addr_to_str, osc_data)
-            lines.append("OSC OUT    : data  ---------> %s" % " | ".join(oscdata_addresses))
+            lines.append(
+                "OSC OUT    : data  ---------> %s" % " | ".join(oscdata_addresses))
         if osc_ui:
             oscui_addresses = map(addr_to_str, osc_ui)
-            lines.append("           : notifications -> %s" % " | ".join(oscui_addresses))
+            lines.append(
+                "           : notifications -> %s" % " | ".join(oscui_addresses))
         lines.append("- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - ")
         lines.extend(self._lines_report_oscapi())
         lines.extend(self._lines_report_config())
@@ -495,7 +512,7 @@ class Pedlbrd(object):
 
     def _prepare_connection(self):
         retry_period = self.config['firsttime_retry_period']
-        accept_fail  = self.config['firsttime_accept_fail']
+        accept_fail = self.config['firsttime_accept_fail']
         if accept_fail:
             serialport = self.find_device(retry_period=0)
         else:
@@ -520,6 +537,7 @@ class Pedlbrd(object):
             cc = pin + 1
             midichan = self.config['midichannel']
             byte1 = 176 + midichan
+
             def callback(value):
                 if inverted:
                     value = 1 - value
@@ -539,6 +557,7 @@ class Pedlbrd(object):
             midi_channel = self.config.get('midichannel', 0)
             byte1 = 176 + midi_channel
             cc = 101 + pin
+
             def callback(value):
                 normvalue = normalize(value)
                 # normalize returns -1 if the pin is not active
@@ -551,13 +570,10 @@ class Pedlbrd(object):
                     midi_lastvalues[pin] = midivalue
                     sendmidi((byte1, cc, midivalue))
 
-
-                #msg = midifunc(normvalue)
-                #if msg:
-                #    sendmidi(msg)
-                # we send the normalized data as 32bit float, which is more than enough for the
-                # ADC resolution of any sensor, and ensures compatibility with
-                # osc implementations such as PD, which only interprets floats as 32 bits
+                # we send the normalized data as 32bit float, which is 
+                # more than enough for the ADC resolution of any sensor, 
+                # and ensures compatibility with osc implementations 
+                # such as PD, which only interprets floats as 32 bits
                 for address in addresses:
                     oscsend(address, '/data/A', pin, ('f', normvalue), ('i', value))
                 return value
@@ -580,10 +596,11 @@ class Pedlbrd(object):
         for handler in self._handlers.items():
             handler.cancel()
         self._handlers = {}
-        time.sleep(0.25)
+        time.sleep(0.05)
         autosave_config_period = self.config.setdefault('autosave_config_period', 31)
         if autosave_config_period:
-            self._handlers['save_config'] = self._call_regularly(autosave_config_period, self._save_config)
+            self._handlers['save_config'] = \
+                self._call_regularly(autosave_config_period, self._save_config)
 
     # ***********************************************
     #
@@ -592,7 +609,8 @@ class Pedlbrd(object):
     # ***********************************************
 
     def _mainloop(self, async):
-        self.logger.debug("starting mainloop in %s mode" % ("async" if async else "sync"))
+        self.logger.debug(
+            "starting mainloop in %s mode" % ("async" if async else "sync"))
         if async:
             self.logger.error("This is currently not supported!!!")
             import threading
@@ -604,21 +622,22 @@ class Pedlbrd(object):
         self._msgqueue = Queue()
         self._midi_turnon()
         self._update_handlers()
-
-        config       = self.config
-        time_time    = time.time
+        time_time = time.time
         digitalinput_needs_calibration = self._digitalinput_needs_calibration
 
         osc_recv_inside_loop = not self._oscasync
-        self.logger.debug("osc will be processed %s" % ("sync" if osc_recv_inside_loop else "async"))
+        self.logger.debug(
+            "osc will be processed %s" % ("sync" if osc_recv_inside_loop else "async"))
 
         self._running = True
         self._set_status('STARTING')
 
-        bgtask_checkinterval  = self.config['sync_bg_checkinterval']  # if the mainloop is active without time out for this interval, it will be interrupted
-        idle_threshold        = self.config['idle_threshold'] # do background tasks after this time of idle (no data comming from the device)
-        button_short_click    = self.config['reset_click_duration']
-        
+        # if the mainloop is active without time out for this interval, 
+        # it will be interrupted
+        bgtask_checkinterval = self.config['sync_bg_checkinterval']
+        # do background tasks after this time of idle (no data comming from the device)
+        idle_threshold = self.config['idle_threshold'] 
+        button_short_click = self.config['reset_click_duration']
         if osc_recv_inside_loop:
             oscrecv = self._oscserver.recv
 
@@ -640,17 +659,13 @@ class Pedlbrd(object):
                 s = self._serialconnection
                 s_read = s.read
                 _ord, _len = ord, len
-                send_osc_ui   = self._send_osc_ui
-                send_osc_data = self._send_osc_data
                 last_heartbeat = bgtask_lastcheck = last_idle = button_pressed_time = time_time()
-                last_sent_heartbeat = 0
-                send_heartbeat_period = 0.33
                 connected = True
                 needs_reset = False
 
                 # CACHE
                 self._update_dispatch_funcs()
-                analog_funcs  = self._analog_funcs
+                analog_funcs = self._analog_funcs
                 digital_funcs = self._digital_funcs
 
                 while self._running:
@@ -671,7 +686,7 @@ class Pedlbrd(object):
                                 break
                             elif msg == "UPDATE":
                                 self._update_dispatch_funcs()
-                                analog_funcs  = self._analog_funcs
+                                analog_funcs = self._analog_funcs
                                 digital_funcs = self._digital_funcs
                             else:
                                 self.logger.error("got unknown message in the msgqueue: %s" % str(msg))
@@ -688,7 +703,7 @@ class Pedlbrd(object):
                     # -------------
                     #   ANALOG
                     # -------------
-                    if cmd == 65: # --> A(nalog)
+                    if cmd == 65:  # --> A(nalog)
                         msg = s_read(3)
                         if len(msg) != 3:
                             self.logger.debug('timed out while reading analog message, dropping it')
@@ -700,7 +715,7 @@ class Pedlbrd(object):
                     # -------------
                     #    DIGITAL
                     # -------------
-                    elif cmd == 68: # --> D(igital)
+                    elif cmd == 68:  # --> D(igital)
                         msg = s_read(2)
                         if _len(msg) != 2:
                             self.logger.debug('timed out while parsing digital message, dropping it')
@@ -717,7 +732,7 @@ class Pedlbrd(object):
                     # -------------
                     #   HEARTBEAT
                     # -------------
-                    elif cmd == 72: # --> H(eartbeat)
+                    elif cmd == 72:  # --> H(eartbeat)
                         last_heartbeat = now
                         if not connected:
                             self._notify_connected()
@@ -726,7 +741,7 @@ class Pedlbrd(object):
                     # -------------
                     #   BUTTON
                     # -------------
-                    elif cmd == 66: # --> B(utton)
+                    elif cmd == 66:  # --> B(utton)
                         msg = s_read(2)
                         if _len(msg) != 2:
                             self.logger.debug('serial BUTTON: timed out while parsing button message, dropping it')
@@ -742,7 +757,7 @@ class Pedlbrd(object):
                     # -------------
                     #    REPLY
                     # -------------
-                    elif cmd == 82: # --> R(eply)
+                    elif cmd == 82:  # --> R(eply)
                         try:
                             msg = serial_read(s, 3)
                             param = _ord(msg[0])
@@ -763,14 +778,14 @@ class Pedlbrd(object):
                     # -------------
                     #    ERROR
                     # -------------
-                    elif cmd == 69: # --> E(rror)
+                    elif cmd == 69:  # --> E(rror)
                         errorcode = _ord(s_read(1)) * 128 + _ord(s_read(1))
-                        error  = ERRORCODES.get(errorcode)
+                        error = ERRORCODES.get(errorcode)
                         self.logger.error("ERRORCODE: %d %s" % (errorcode, str(error)))
                     # -------------
                     #     INFO
                     # -------------
-                    elif cmd == 73: # --> I(nfo)
+                    elif cmd == 73:  # --> I(nfo)
                         try:
                             data = serial_read(s, 6)
                             replyid, dev_id, max_digital_pins, max_analog_pins, num_digital_pins, num_analog_pins = map(_ord, data)
@@ -779,7 +794,7 @@ class Pedlbrd(object):
                             analog_pins = []
                             for pin in range(num_analog_pins):
                                 analog_data = map(_ord, serial_read(s, 5))
-                                analog_pins.append( AnalogPin(*analog_data) )
+                                analog_pins.append(AnalogPin(*analog_data))
                             info = dict(
                                 dev_id=dev_id, max_digital_pins=max_digital_pins, max_analog_pins=max_analog_pins, analog_pins=analog_pins,
                                 num_digital_pins=num_digital_pins, num_analog_pins=num_analog_pins,
@@ -796,7 +811,7 @@ class Pedlbrd(object):
                     # -------------
                     #   MESSAGE
                     # -------------
-                    elif cmd == 77: # --> M(essage)
+                    elif cmd == 77:  # --> M(essage)
                         try:
                             numchars = _ord(serial_read(1))
                             msg = []
@@ -891,6 +906,7 @@ class Pedlbrd(object):
         if not self.config.state['changed'] and self.config.state['saved']:
             self.logger.debug('config unchanged, skipping save')
             return
+
         def saveit(self=self):
             configfile = self.configfile
             assert configfile is not None
@@ -935,8 +951,8 @@ class Pedlbrd(object):
         pin here refers to the underlying arduino pin
         value returned is 0-1
         """
-        maxvalue  = self._analog_maxvalues[pin]
-        minvalue  = self._analog_minvalues[pin]
+        maxvalue = self._analog_maxvalues[pin]
+        minvalue = self._analog_minvalues[pin]
         if self._analog_autorange[pin]:
             if minvalue <= value <= maxvalue:
                 value2 = (value - minvalue) / (maxvalue - minvalue)
@@ -971,7 +987,7 @@ class Pedlbrd(object):
             self._midiout = None
 
     def _midithrough_set(self, wildcard_or_index, value):
-        self._midithrough_index = wildcard_or_index+1 # 0 is no ports selected
+        self._midithrough_index = wildcard_or_index+1  # 0 is no ports selected
         if value == 1:
             if wildcard_or_index not in self._midithrough_ports:
                 print "connecting to", wildcard_or_index
@@ -1008,7 +1024,6 @@ class Pedlbrd(object):
         conn_found = False
         if not reconnect_period:
             self.stop()
-            out = False
         else:
             self._notify_disconnected()
             self.logger.debug("....looking for device")
@@ -1020,17 +1035,17 @@ class Pedlbrd(object):
                         conn_found = True
                         break
                     else:
-                        self.logger.debug("------------> port NOT FOUND. Attempting again in %.2f seconds" % reconnect_period)
+                        self.logger.debug("----> port NOT FOUND. Attempting again in %.2f seconds" % reconnect_period)
                         time.sleep(reconnect_period)
                 except KeyboardInterrupt:
                     break
         if conn_found:
             self._serialconnection = serial.Serial(self.serialport, baudrate=BAUDRATE, timeout=self._serialtimeout)
             self._notify_connected()
-            self._call_later(4, self._get_device_info)
-            self._call_later(8, lambda self: setattr(self, '_first_conn', False), (self,))
+            self._call_later(2, self._get_device_info)
+            self._call_later(3, lambda self: setattr(self, '_first_conn', False), (self,))
             if self.config['autocalibrate_digital']:
-                self._call_later(2, self.calibrate_digital)
+                self._call_later(2.5, self.calibrate_digital)
             if self.config['reset_after_reconnect']:
                 self.reset_state()
         return conn_found
@@ -1224,7 +1239,8 @@ class Pedlbrd(object):
     def cmd_api_get(self, src, reply_id, show=0):
         """{i} Replies with a list of api commands"""
         args = []
-        print "/api/get"
+        print("/api/get")
+
         def sanitize(arg):
             if arg is None:
                 arg = "-"
@@ -1234,7 +1250,8 @@ class Pedlbrd(object):
         for cmd in self._osc_get_commands():
             path, types, docstr = [cmd.get(attr) for attr in ('path', 'signature', 'docstr')]
             if show:
-                print "{path} {sig} {doc}".format(path=path.ljust(20), sig=(types if types is not None else "-").ljust(6), doc=docstr)
+                print "{path} {sig} {doc}".format(
+                    path=path.ljust(20), sig=(types if types is not None else "-").ljust(6), doc=docstr)
             msg = "#".join(map(sanitize, (path, types, docstr)))
             args.append(msg)
         args.sort()
@@ -1247,9 +1264,10 @@ class Pedlbrd(object):
             self._oscserver.send(src, '/devinfo', tags, *info)
             tags = 'label:resolution:smoothing:filtertype:denoise:autorange:minvalue:maxvalue'
             for pin in devinfo['analog_pins']:
-                self._oscserver.send(src, '/devinfo/analogpin', tags,
-                                     "A%d"%pin.pin, pin.resolution, pin.smoothing, pin.filtertype, pin.denoise,
-                                     self._analog_autorange[pin.pin], self._analog_minvalues[pin.pin], self._analog_maxvalues[pin.pin]
+                self._oscserver.send(
+                    src, '/devinfo/analogpin', tags,
+                    "A%d" % pin.pin, pin.resolution, pin.smoothing, pin.filtertype, pin.denoise,
+                    self._analog_autorange[pin.pin], self._analog_minvalues[pin.pin], self._analog_maxvalues[pin.pin]
                 )
         self.send_to_device(('G', 'I'), callback)
 
@@ -1459,16 +1477,16 @@ class Pedlbrd(object):
 
     def cmd_filtertype_set(self, analoginput, value):
         """{ii}Set filtertype for input. 0=LOWPASS 1=MEDIAN 2=BESSEL1 3=BESSEL2"""
-        if not( 1 <= analoginput < 6):
+        if not(1 <= analoginput < 6):
             self.logger.error("filtertype/set: analoginput out of range: %d" % analoginput)
             return
         self.logger.debug("/filtertype/set -> input: %d  value: %d" % (analoginput, value))
         if isinstance(value, basestring):
             value = {
-                'LOWPASS':0,
-                'MEDIAN' :1,
-                'BESSEL1':2,
-                'BESSEL2':3
+                'LOWPASS': 0,
+                'MEDIAN' : 1,
+                'BESSEL1': 2,
+                'BESSEL2': 3
             }.get(value.upper())
             if not value:
                 self.logger.debug('filtertype must be an int or one of LOWPASS, MEDIAN, BESSEL1 and BESSEL2')
@@ -1484,7 +1502,7 @@ class Pedlbrd(object):
         if not(1 <= analoginput < 6):
             self.logger.error("preventosc/set: analoginput out of range: %d" % analoginput)
             return
-        if not(0<=value<=1):
+        if not(0 <= value <= 1):
             self.logger.error("denoise/set: value out of reange")
             return
         self.send_to_device(('S', 'O', analoginput-1, value))
@@ -1493,6 +1511,7 @@ class Pedlbrd(object):
         return ForwardReply(('G', 'O', analoginput-1))
 
     def cmd_quit(self):
+        print("comd_quit")
         self.logger.debug('received /quit signal')
         self.stop()
 
@@ -1511,6 +1530,7 @@ class Pedlbrd(object):
     def _osc_get_commands(self):
         cmds = [(a, getattr(self, a)) for a in dir(self) if a.startswith('cmd_')]
         out = []
+
         def parse_cmd(methodname):
             if methodname.endswith('_get'):
                 kind = 'GET'
@@ -1530,6 +1550,7 @@ class Pedlbrd(object):
                     path = '/'.join(path)
                 path = "/" + path
             return path, kind, basename
+
         def get_info(method):
             docstr = inspect.getdoc(method)
             if docstr and docstr.startswith("{"):
@@ -1540,7 +1561,7 @@ class Pedlbrd(object):
             return sig, docstr
         for methodname, method in cmds:
             path, kind, basename = parse_cmd(methodname)
-            signature, docstr  = get_info(method)
+            signature, docstr = get_info(method)
             cmd = dict(basename=basename, method=method, path=path,
                        kind=kind, signature=signature, docstr=docstr,
                        methodname=methodname)
@@ -1555,7 +1576,8 @@ class Pedlbrd(object):
 
         ==> (the osc-server, a list of added paths)
         """
-        self.logger.debug("will attempt to create a server at port {port}: {kind}".format(port=OSCPORT, kind="async" if self._oscasync else "sync"))
+        self.logger.debug("will attempt to create a server at port {port}: {kind}".format(
+            port=OSCPORT, kind="async" if self._oscasync else "sync"))
         try:
             if self._oscasync:
                 s = liblo.ServerThread(OSCPORT)
@@ -1565,7 +1587,8 @@ class Pedlbrd(object):
             return None, None
         osc_commands = []
         for cmd in self._osc_get_commands():
-            kind, method, path, signature, basename = [cmd[attr] for attr in ('kind', 'method', 'path', 'signature', 'basename')]
+            kind, method, path, signature, basename = \
+                [cmd[attr] for attr in ('kind', 'method', 'path', 'signature', 'basename')]
             assert method is not None
             if kind == 'META':
                 # functions annotated as meta will be called directly
@@ -1592,13 +1615,13 @@ class Pedlbrd(object):
 
     def _lines_report_oscapi(self):
         lines = []
-        cmds = []
         ip, oscport = self.ip, OSCPORT
         msg = "    OSC Input    |    IP %s    PORT %d    " % (ip, oscport)
         lines.append("=" * len(msg))
         lines.append(msg)
         lines.append("=" * len(msg))
         lines2 = []
+
         def get_args(method, types, exclude=[]):
             argnames = [arg for arg in inspect.getargspec(method).args if arg not in exclude]
             if not types:
@@ -1614,7 +1637,8 @@ class Pedlbrd(object):
         sign_col_width = 26
         no_sig = " -".ljust(sign_col_width)
         for cmd in self._osc_get_commands():
-            method, path, kind, types, docstr = [cmd[attr] for attr in ('method', 'path', 'kind', 'signature', 'docstr')]
+            method, path, kind, types, docstr = \
+                [cmd[attr] for attr in ('method', 'path', 'kind', 'signature', 'docstr')]
             if types and kind != "META":
                 args = get_args(method, types, exclude=('self',))
             elif kind == 'GET':
@@ -1645,7 +1669,10 @@ class Pedlbrd(object):
                     addr, replyid = src, reply
                 elif isinstance(reply, basestring):
                     if '/' not in reply:
-                        self.logger.error('GET: the first arg. must be a reply id (either an int or of the form ADDRESS/ID). Got: %s' %reply)
+                        self.logger.error(
+                            "GET: the first arg. must be a reply id "
+                            "(either an int or of the form ADDRESS/ID). Got: %s" 
+                            % reply)
                         return
                     else:
                         try:
@@ -1661,10 +1688,14 @@ class Pedlbrd(object):
                         else:
                             addr = liblo.Address(src.hostname, int(addr))
                 else:
-                    self.logger.error("GET: expecting a replyid or a string defining the address and replyid, got %s" % str(reply))
+                    self.logger.error(
+                        "GET: expecting a replyid or a string defining " 
+                        "the address and replyid, got %s" 
+                        % str(reply))
                     return
 
-            self.logger.debug("GET: calling method with addr={addr}, replyid={replyid}, args={args}".format(addr=(addr.hostname, addr.port), replyid=replyid, args=args))
+            self.logger.debug("GET: calling method with addr={addr}"", replyid={replyid}, args={args}".format(
+                addr=(addr.hostname, addr.port), replyid=replyid, args=args))
             try:
                 out = callback(addr, replyid, *args[1:])
             except:
@@ -1692,21 +1723,25 @@ class Pedlbrd(object):
 # ::Helper functions
 ###############################
 
+
 class ForwardReply(object):
     def __init__(self, bytes, postfunc=None):
         if postfunc is None:
-            postfunc = lambda _:_
+            def postfunc(arg): return arg
         self.bytes = bytes
         self.postfunc = postfunc
+
 
 class AnalogPin(namedtuple('AnalogPin', 'pin resolutionbits smoothing filtertype denoise')):
     @classmethod
     def fromdata(cls, data):
         pin, resolutionbits, smoothing, filtertype, denoise = map(ord, data)
         return cls(pin=pin, resolutionbits=resolutionbits, smoothing=smoothing, filtertype=filtertype, denoise=denoise)
+
     @property
     def resolution(self):
-        return (1<<self.resolutionbits) - 1
+        return (1 << self.resolutionbits) - 1
+
 
 def int14tobytes(int14):
     """encode int16 into two bytes"""
@@ -1714,12 +1749,15 @@ def int14tobytes(int14):
     b2 = int14 & 0b1111111
     return b1, b2
 
+
 def bytes_to_int14(b1, b2):
     return (b1 << 7) + b2
+
 
 def _get_ip():
     import socket
     return socket.gethostbyname(socket.gethostname())
+
 
 def _oscmeta_get_addr(args, src):
     """
@@ -1732,16 +1770,18 @@ def _oscmeta_get_addr(args, src):
         addr = src.hostname, src.port
     return addr
 
+
 def _filtertype_as_string(filtertype):
     out = {
-        0:'LOWPASS',
-        1:'MEDIAN',
-        2:'BESSEL1',
-        3:'BESSEL2'
+        0: 'LOWPASS',
+        1: 'MEDIAN',
+        2: 'BESSEL1',
+        3: 'BESSEL2'
     }.get(filtertype)
     if out:
         return out
     return filtertype
+
 
 def _sanitize_osc_address(*args):
     """
@@ -1784,7 +1824,8 @@ def _sanitize_osc_address(*args):
         return None
     return (host, port)
 
-def _is_heartbeat_present(port, timeout=1.5, wait=0.8):
+
+def _is_heartbeat_present(port):
     """
     Return True if the given serial port is transmitting a heartbeat
 
@@ -1793,34 +1834,54 @@ def _is_heartbeat_present(port, timeout=1.5, wait=0.8):
           for this time, the timeout starts counting after the wait time
     """
     _debug("opening device %s" % port)
+    timeout = 3  # wait so much for a heartbeat
     try:
-        s = serial.Serial(port, baudrate=BAUDRATE, timeout=0.5)
+        # This is a hack for some arduino UNOs, which are in an 
+        # unknown baudrate sate when the serial interface
+        # with the OS crashes
+        s = serial.Serial(port, baudrate=57600)
+        time.sleep(0.1)
+        s.flush()
+        s.close()
+
+        s = serial.Serial(port, baudrate=BAUDRATE, timeout=1)
     except OSError:
         # device is busy, probably open by another process
         return False
-    s_read = s.read
-    if wait:
-        time.sleep(wait)
+    _debug("giving time for the device to restart")
+    time.sleep(0.75)
+    s.flush()
     t0 = time.time()
     while time.time() - t0 < timeout:
         try:
-            b = s_read(1)
-            if len(b):
-                b = ord(b)
-                if (b & 0b10000000) and (b & 0b01111111) == 72:  # ord('H')
-                    b = s_read(1)
-                    if len(b) and ord(b) < 128:
-                        device_id = ord(b)
-                        if device_id == PEDLBRD_ID:
-                            return True
+            b = s.read(1)
+            if not len(b):
+                _debug("Device is not sending anything...")
+                continue  
+            b = ord(b)
+            _debug("** got char %d" % b)
+            if (b & 0b10000000) and (b & 0b01111111) == 72:  # ord('H')
+                _debug("got heartbeat, checking ID")
+                b = s.read(1)
+                if len(b) and ord(b) < 128:
+                    device_id = ord(b)
+                    if device_id == PEDLBRD_ID:
+                        return True
+                    else:
+                        _debug("Got heartbeat, but identity is %d" % device_id)    
         except serial.SerialException:
-            # this happens when the device is in an unknown state, during firmware update, etc.
+            # this happens when the device is in an unknown state, 
+            # during firmware update, etc.
+            _debug("SerialException!")
             return False
+    _debug("Device timed out")
+
 
 def _jsondump(d, filename):
     d = util.sort_natural_dict(d)
-    #json.dump(d, open(filename, 'w'), indent=4)
+    # json.dump(d, open(filename, 'w'), indent=4)
     json.dump(d, open(filename, 'w'))
+
 
 def _add_suffix(p, suffix):
     name, ext = os.path.splitext(p)
@@ -1831,13 +1892,15 @@ def _add_suffix(p, suffix):
 # ::Logging
 #
 ################################
+
+
 class Log:
     def __init__(self, logname='PEDLBRD'):
         self.filename_debug = os.path.join(envir.basepath(), "%s--debug.log" % logname)
         debug_log = logging.getLogger('pedlbrd-debug')
         debug_log.setLevel(logging.DEBUG)
         debug_handler = logging.handlers.RotatingFileHandler(self.filename_debug, maxBytes=80*2000, backupCount=1)
-        debug_handler.setFormatter( logging.Formatter('%(levelname)s: -- %(message)s') )
+        debug_handler.setFormatter(logging.Formatter('%(levelname)s: -- %(message)s'))
         debug_log.addHandler(debug_handler)
         self.logger = debug_log
 
@@ -1850,12 +1913,14 @@ class Log:
     def error(self, msg):
         self.logger.error(msg)
 
+
 def _debug(msg):
     logger = REG.get('logger')
     if logger:
         logger.debug(msg)
     else:
         print "[ DEBUG ]", msg
+
 
 def _error(msg):
     logger = REG.get('logger')

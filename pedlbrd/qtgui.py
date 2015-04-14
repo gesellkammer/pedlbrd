@@ -101,6 +101,7 @@ class OSCThread(QThread):
         self._exiting = True
 
     def sendosc(self, path, *args):
+        print("sending osc: %s" % path)
         self.s.send(self.pedlbrd_address, path, *args)
 
     def cmd_status(self, status):
@@ -159,6 +160,7 @@ class OSCThread(QThread):
 
     def cmd_quit(self):
         # the core is asking to quit
+        print("GUI: asked by core to quit")
         self.gui.action_quit(notify_core=False)
 
     def _get_reply_id(self):
@@ -183,12 +185,13 @@ class Slider(QWidget):
         self._height = self.height()
         self._width = self.width()
         self._dirty = False
+        self.setMaximumWidth(24)
 
     def minimumSizeHint(self):
-        return QSize(8, 10)
+        return QSize(10, 20)
 
     def sizeHint(self):
-        return QSize(8, 100)
+        return QSize(20, 100)
 
     def paintEvent(self, event):
         h = self.height()
@@ -217,13 +220,14 @@ class BigCheckBox(QWidget):
         self._dirty = False
         self.value = 0
         self._pen = pen = QPen()
-        pen.setColor(QColor(50, 50, 50, 50))
-        pen.setWidth(2)
+        gray = 200  # 0-255
+        pen.setColor(QColor(gray, gray, gray))
+        pen.setWidth(1)
         self._brushes = (QColor(240, 240, 240), QColor(0, 180, 255))
         self.firstpaint = True
 
     def minimumSizeHint(self):
-        return QSize(self._size, self._size)
+        return QSize(self._size+1, self._size+1)
 
     def get_center(self):
         size = self.size()
@@ -251,7 +255,7 @@ class BigCheckBox(QWidget):
         p.begin(self)
         p.setPen(pen)
         p.setBrush(self._brushes[self.value > 0])
-        p.drawRect(cx - r, cy - r, self._size, self._size)
+        p.drawRect(cx - r, int(cy - r), self._size-1, self._size - 1)
         p.end()
         self._dirty = False
 
@@ -274,12 +278,13 @@ class Pedlbrd(QWidget):
         self._midiports = []
         self._analog_dirty = [False, False, False, False, False, False]
         self._dirty = False
+        self._quitting = False
 
         # -----------------------------------------------
         self.setup_widgets()
         self.create_polltimer()
         self.osc_thread.start()
-        self.call_later(1000, self.post_init)
+        self.call_later(500, self.post_init)
 
     def create_polltimer(self):
         self._polltimer = timer = QTimer()
@@ -305,7 +310,7 @@ class Pedlbrd(QWidget):
             self._dirty = False
 
     def set_status(self, status):
-        self.conn_status = status
+        self.conn_status = status.strip()
         self.status.setText(status)
 
     def setup_widgets(self):
@@ -344,26 +349,24 @@ class Pedlbrd(QWidget):
         # Add the form layout to the main VBox layout
         self.layout.addLayout(form_layout)
 
-        # Create a horizontal box layout to hold the button
+        # Create a horizontal box layout to hold the buttons
         button_box = QHBoxLayout()
 
-        # Add stretch to push the button to the far right
         reset_button = QPushButton('Reset', self)
         reset_button.clicked.connect(self.action_reset)
-        debug_button = QPushButton('#', self)
+        debug_button = QPushButton('Debug', self)
         debug_button.clicked.connect(self.action_debug)
         daemon_button = QPushButton('Hide', self)
         daemon_button.clicked.connect(self.action_daemon)
 
         self.quit_button = QPushButton('Quit', self)
-        self.quit_button.clicked.connect(self.action_quit)
+        self.quit_button.clicked.connect(lambda: self.action_quit(notify_core=True))
 
         # Add it to the button box
         buttons = [reset_button, debug_button, daemon_button]
         for button in buttons:
             button_box.addWidget(button)
 
-        # button_box.addStretch()
         button_box.addWidget(self.quit_button)
         button_box.setSpacing(2)
 
@@ -378,7 +381,7 @@ class Pedlbrd(QWidget):
             (0, 0), (0, 1), (0, 2),
             (1, 0), (1, 1), (1, 2),
             (2, 0), (2, 1), (2, 2),
-            (3, 1)
+                    (3, 1)
         )
         for chk, position in zip(chks, positions):
             x, y = position
@@ -391,13 +394,14 @@ class Pedlbrd(QWidget):
         slider_grid = QGridLayout()
         for i, slider in enumerate(sliders):
             slider_grid.addWidget(slider, 0, i, 1, 1)
-        slider_grid.setSpacing(6)
+        slider_grid.setSpacing(1)
 
         grid0.addLayout(slider_grid, 0, 1)
 
         # Set the VBox layout as the window's main layout
         self.layout.addLayout(grid0)
         self.setLayout(self.layout)
+        self.setMaximumWidth(280)
 
         # midiports
         """
@@ -417,12 +421,10 @@ class Pedlbrd(QWidget):
     def post_init(self):
         print("--------------------- post_init")
         self.get_midiports()
-        self.osc_thread.get('status',
-            lambda status: invoke_in_main_thread(self.set_status, status))
-        self.osc_thread.get('midithrough',
-            lambda index: self.midithrough_set(index, notifycore=False, updategui=True))
-        self.osc_thread.get('midichannel',
-            lambda chan: invoke_in_main_thread(self.midichannel_combo.setCurrentIndex, chan))
+        self.osc_thread.get('status', lambda status: invoke_in_main_thread(self.set_status, status))
+        self.osc_thread.get('midithrough', lambda index: self.midithrough_set(index, notifycore=False, updategui=True))
+        self.osc_thread.get('midichannel', 
+                            lambda chan: invoke_in_main_thread(self.midichannel_combo.setCurrentIndex, chan))
 
     def _update_midiports(self, ports):
         if ports != self._midiports:
@@ -434,7 +436,7 @@ class Pedlbrd(QWidget):
             self.midiports_combo.addItems(ports)
             self.midiports_combo.setMinimumWidth(
                 self.midiports_combo.minimumSizeHint().width())
-            self.setFixedSize(self.sizeHint())
+            #self.setFixedSize(self.sizeHint())
             if self._midithrough_index > 0:
                 # midiports changed and there was a port selected.
                 # find its index and set it as the new selection
@@ -459,13 +461,23 @@ class Pedlbrd(QWidget):
         self.digpins[pin - 1].setValue(value)
 
     def action_quit(self, notify_core=True):
+        if self._quitting:
+            print("GUI: action_quit called, but already quitting")
+            return
+        self._quitting = True
+        print("GUI: action_quit: quitting now")
         if notify_core:
+            print("action_quit: sending /quit to core")
             self.osc_thread.sendosc('/quit')
+        else:
+            print("Quitting but not sending /quit to core")
+        print("action_quit: stopping osc thread")
         self.osc_thread.stop()
         time.sleep(0.2)
         QCoreApplication.instance().quit()
 
     def action_daemon(self):
+        print("------> action_daemon")
         self.action_quit(notify_core=False)
 
     def action_reset(self):
@@ -486,12 +498,12 @@ class Pedlbrd(QWidget):
                 if not os.path.exists(pedltalkpath):
                     logger.error("pedltalk not found! Searched path: %s" % pedltalkpath)
                     return
-                p = subprocess.Popen(args=['osascript', 
-                                           '-e', 'tell app "Terminal"', 
-                                           '-e', 'do script "{python} {pedltalk}"'.format(python=sys.executable, pedltalk=pedltalkpath),
-                                           '-e', 'activate',
-                                           '-e', 'end tell'])
-                self._subprocs['pedltalk'] = p
+                args = [
+                    'osascript', '-e', 'tell app "Terminal"', 
+                    '-e', 'do script "{python} {pedltalk}"'.format(python=sys.executable, pedltalk=pedltalkpath),
+                    '-e', 'activate',
+                    '-e', 'end tell']
+                self._subprocs['pedltalk'] = subprocess.Popen(args=args)
             elif sys.platform == 'linux2': 
                 currentdir = os.path.split(os.path.realpath(__file__))[0]
                 pedltalkpath = os.path.realpath(
@@ -499,8 +511,7 @@ class Pedlbrd(QWidget):
                 if not os.path.exists(pedltalkpath):
                     logger.error("pedltalk not found! Searched path: %s" % pedltalkpath)
                     return
-                p = subprocess.Popen(args=["xterm", "-e", "python", pedltalkpath])
-                self._subprocs['pedltalk'] = p
+                self._subprocs['pedltalk'] = subprocess.Popen(args=["xterm", "-e", "python", pedltalkpath])
 
     def get_midiports(self, callback=None):
         """
@@ -523,12 +534,9 @@ class Pedlbrd(QWidget):
     def midithrough_set(self, index, updategui=False, notifycore=True):
         if notifycore:
             if index != self._midithrough_index:
-                self.osc_thread.sendosc('/midithrough/set', 
-                                        self._midithrough_index - 1, 0)
+                self.osc_thread.sendosc('/midithrough/set', self._midithrough_index - 1, 0)
             if index > 0:
-                self.call_later(
-                    100, 
-                    lambda: self.osc_thread.sendosc('/midithrough/set', index - 1, 1))
+                self.call_later(100, lambda: self.osc_thread.sendosc('/midithrough/set', index - 1, 1))
         self._midithrough_index = index
         if updategui:
             invoke_in_main_thread(self.midiports_combo.setCurrentIndex, index)
@@ -563,7 +571,7 @@ def start(pedlbrd_address=("localhost", 47120)):
     app = Pedlbrd(pedlbrd_address)
     app.run()  # <-------------- this will block
     app.osc_thread.stop()
-    time.sleep(0.2)
+
 
 if __name__ == '__main__':
     start()
